@@ -30,6 +30,13 @@
 - 支持将两个 JSON 格式的术语表合并为一个。
 - 支持拖拽文件输入。
 
+### 5. 字幕提取 (FFmpeg)
+- **功能**: 从视频容器 (MP4, MKV) 中提取字幕流。
+- **智能选择**: 自动识别默认音频轨道，并优先选中与音频语言一致的字幕轨道。
+- **自动过滤**: 默认排除 `hearing_impaired` (SDH) 和 `forced` 字幕。
+- **格式转换**: 自动将 `mov_text` (MP4) 和 `webvtt` 转换为 `.srt` 格式。
+- **环境要求**: 此功能需要系统 PATH 中包含 `ffmpeg` 和 `ffprobe`。
+
 ## 安装与运行
 
 ### 依赖安装
@@ -44,6 +51,12 @@ pip install customtkinter tkinterdnd2-universal
 
 ```bash
 python app_ui.py
+```
+
+### 打包 (PyInstaller)
+如果需要打包为独立 exe 文件，请运行以下命令：
+```bash
+pyinstaller --noconsole --onefile --collect-all customtkinter app_ui.py
 ```
 
 ## 使用说明

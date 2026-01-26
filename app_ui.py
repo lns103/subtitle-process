@@ -81,6 +81,9 @@ class App(CTk):
         self.sidebar_button_term = ctk.CTkButton(self.sidebar_frame, text="术语合并", font=self.font_normal, command=lambda: self.select_frame("term"))
         self.sidebar_button_term.grid(row=4, column=0, padx=20, pady=10)
 
+        self.sidebar_button_extract = ctk.CTkButton(self.sidebar_frame, text="字幕提取", font=self.font_normal, command=lambda: self.select_frame("extract"))
+        self.sidebar_button_extract.grid(row=5, column=0, padx=20, pady=10)
+
         self.appearance_mode_label = ctk.CTkLabel(self.sidebar_frame, text="外观模式:", font=self.font_normal, anchor="w")
         self.appearance_mode_label.grid(row=7, column=0, padx=20, pady=(10, 0))
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["System", "Light", "Dark"],
@@ -94,14 +97,15 @@ class App(CTk):
         self.setup_merge_frame()
         self.setup_rename_frame()
         self.setup_term_frame()
+        self.setup_extract_frame()
         
         # 底部日志区
-        self.log_frame = ctk.CTkFrame(self, corner_radius=0, height=150)
+        self.log_frame = ctk.CTkFrame(self, corner_radius=0, height=100)
         self.log_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
         self.log_frame.grid_rowconfigure(0, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
         
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=self.font_normal)
+        self.log_box = ctk.CTkTextbox(self.log_frame, font=self.font_normal, height=100)
         self.log_box.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.log("程序已启动...")
         if not HAS_DND:
@@ -253,7 +257,56 @@ class App(CTk):
             self.entry_term2.drop_target_register(DND_FILES)
             self.entry_term2.dnd_bind('<<Drop>>', lambda e: self.on_drop_assign(e, self.term_file2))
         
+        
         ctk.CTkButton(frame, text="开始合并", font=self.font_normal, command=lambda: self.run_task(self.task_merge_terms)).pack(pady=20, anchor="w")
+
+    def setup_extract_frame(self):
+        frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.frames["extract"] = frame
+        
+        # 使用 Grid 布局以确保底部按钮可见性
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(4, weight=1) # Row 4 (Scroll) expands
+
+        # Row 0: Title
+        label = ctk.CTkLabel(frame, text="字幕提取 (FFmpeg)", font=self.font_title)
+        label.grid(row=0, column=0, sticky="w", padx=10, pady=10)
+        
+        # Row 1: File Selection
+        self.extract_file_var = ctk.StringVar(value="未选择文件")
+        
+        file_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        file_frame.grid(row=1, column=0, sticky="ew", padx=0, pady=5)
+        
+        ctk.CTkButton(file_frame, text="选择视频文件", font=self.font_normal, command=self.select_video_file).pack(side="left", padx=(10, 10))
+        self.lbl_extract_file = ctk.CTkLabel(file_frame, textvariable=self.extract_file_var, font=self.font_normal, text_color="gray", anchor="w")
+        self.lbl_extract_file.pack(side="left", fill="x", expand=True)
+
+        # Row 2: DnD
+        if HAS_DND:
+            dnd_frame = ctk.CTkFrame(frame, border_width=2, border_color="gray", height=60)
+            dnd_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+            dnd_frame.pack_propagate(False) 
+            
+            dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽视频文件到此处 (MP4 / MKV)", font=self.font_normal, text_color="gray")
+            dnd_label.place(relx=0.5, rely=0.5, anchor="center")
+            
+            dnd_frame.drop_target_register(DND_FILES)
+            dnd_frame.dnd_bind('<<Drop>>', self.on_drop_extract)
+
+        # Row 3: Track Label
+        ctk.CTkLabel(frame, text="可用字幕轨道:", font=self.font_bold).grid(row=3, column=0, sticky="w", padx=10, pady=(10, 5))
+        
+        # Row 4: Scroll List (Expands)
+        self.tracks_scroll = ctk.CTkScrollableFrame(frame, label_text="Track List", height=100)
+        self.tracks_scroll.grid(row=4, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # Row 5: Button (Fixed at bottom)
+        ctk.CTkButton(frame, text="开始提取选中字幕", font=self.font_large_bold, height=40, command=lambda: self.run_task(self.task_dev_extract)).grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+
+        # 内部变量
+        self.current_video_path = None
+        self.track_vars = [] # list of (dict_info, BooleanVar)
 
     # --- Helpers ---
 
@@ -313,13 +366,111 @@ class App(CTk):
         else:
             self.log("请拖拽文件夹")
 
+    def on_drop_extract(self, event):
+        files = self.parse_drop_files(event.data)
+        if not files: return
+        # 只处理第一个文件
+        f = files[0]
+        if os.path.isfile(f):
+            self.load_video_info(f)
+
+    def select_video_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Video Files", "*.mp4 *.mkv *.avi *.mov"), ("All Files", "*.*")])
+        if f:
+            self.load_video_info(f)
+
+    def load_video_info(self, filepath):
+        self.current_video_path = filepath
+        self.extract_file_var.set(os.path.basename(filepath))
+        self.log(f"正在分析视频文件: {filepath} ...")
+        
+        # 清空列表
+        for widget in self.tracks_scroll.winfo_children():
+            widget.destroy()
+        self.track_vars = []
+        
+        threading.Thread(target=self.task_analyze_video, args=(filepath,)).start()
+
+    def task_analyze_video(self, filepath):
+        if not SubtitleTool: 
+             self.log("Error: Tools not loaded.")
+             return
+             
+        info = SubtitleTool.get_video_info(filepath)
+        if not info:
+            self.log("无法获取媒体信息 (ffprobe 失败?)")
+            return
+            
+        # Get defaults
+        recommendations = SubtitleTool.get_extraction_recommendation(info)
+        
+        # Update UI in main thread? CTk is somewhat thread safe for setting vars but adding widgets should be careful.
+        # usually best to use .after or specific update method. CTk widgets creation MUST be in main thread.
+        self.after(0, lambda: self.render_track_list(info, recommendations))
+
+    def render_track_list(self, info, recommendations):
+        subs = info.get("subtitles", [])
+        if not subs:
+            ctk.CTkLabel(self.tracks_scroll, text="未找到字幕轨道", font=self.font_normal).pack(pady=10)
+            self.log(f"分析完成: 无字幕轨道")
+            return
+            
+        audio_info = f"Audio: {len(info.get('audio_langs', []))} tracks (Default: {info.get('default_audio_lang', 'None')})"
+        self.log(f"分析完成: {len(subs)} 个字幕轨道. {audio_info}")
+        
+        for sub in subs:
+            idx = sub['index']
+            lang = sub['language']
+            title = sub['title']
+            codec = sub['codec_name']
+            is_default = sub['default']
+            is_forced = sub['forced']
+            is_hi = sub['hearing_impaired']
+            
+            # Flags string
+            flags = []
+            if is_default: flags.append("Default")
+            if is_forced: flags.append("Forced")
+            if is_hi: flags.append("SDH")
+            if sub['dub']: flags.append("Dub")
+            
+            flag_str = f"[{', '.join(flags)}]" if flags else ""
+            display_text = f"Track {idx}: {lang} ({codec}) {flag_str} {title}"
+            
+            var = ctk.BooleanVar(value=(idx in recommendations))
+            chk = ctk.CTkCheckBox(self.tracks_scroll, text=display_text, variable=var, font=self.font_normal)
+            chk.pack(anchor="w", pady=2, padx=5)
+            
+            self.track_vars.append((sub, var))
+
+    def task_dev_extract(self):
+        if not self.current_video_path:
+            self.log("请先选择视频文件")
+            return
+            
+        selected_subs = []
+        for sub_info, var in self.track_vars:
+            if var.get():
+                selected_subs.append(sub_info)
+        
+        if not selected_subs:
+            self.log("未选择任何轨道")
+            return
+            
+        self.log(f"开始提取 {len(selected_subs)} 个轨道...")
+        for msg in SubtitleTool.extract_subtitles_stream(self.current_video_path, selected_subs):
+            self.log(msg)
+        self.log("提取任务结束")
+
     def parse_drop_files(self, data):
         # tkinterdnd2 返回的路径如果是包含空格的，会用 {} 包裹
         # 简单解析
         if data.startswith('{') and data.endswith('}'):
             # 这是一个简单这种，实际上可能多个文件 {file 1} {file 2}
             import re
-            return re.findall(r'\{(.+?)\}|(\S+)', data) # 粗略解析，待完善
+            matches = re.findall(r'\{(.+?)\}|(\S+)', data)
+            # findall 返回 [('path included space', ''), ('', 'simple_path')]
+            return [m[0] if m[0] else m[1] for m in matches]
             # 更简单的处理：
             # data 这里通常是 "{path1} {path2}" 或 "path1 path2"
         # 直接使用 split 可能有问题。这里暂时只支持单个文件或标准列表

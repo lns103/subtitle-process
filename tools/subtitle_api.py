@@ -9,6 +9,7 @@ try:
     from . import ass_outlinescale
     from . import chs_srt_format
     from . import terms_merge
+    from . import subtitle_extractor
 except ImportError:
     import srt_process
     import merge_srt
@@ -16,6 +17,7 @@ except ImportError:
     import ass_outlinescale
     import chs_srt_format
     import terms_merge
+    import subtitle_extractor
 
 class SubtitleTool:
     """
@@ -129,3 +131,25 @@ class SubtitleTool:
         """
         success, msg = terms_merge.merge_json_files(file1, file2, output)
         yield msg
+
+    @staticmethod
+    def get_video_info(filepath):
+        """
+        获取视频字幕信息
+        """
+        return subtitle_extractor.SubtitleExtractor.get_media_info(filepath)
+
+    @staticmethod
+    def get_extraction_recommendation(info):
+        """
+        获取推荐选中的字幕
+        """
+        return subtitle_extractor.SubtitleExtractor.get_default_selection(info)
+
+    @staticmethod
+    def extract_subtitles_stream(filepath, selected_subs):
+        """
+        提取字幕 (生成器)
+        """
+        for msg in subtitle_extractor.SubtitleExtractor.extract_subtitles_v2(filepath, selected_subs):
+            yield msg

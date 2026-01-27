@@ -74,33 +74,72 @@ class SubtitleTool:
                 yield msg
 
     @staticmethod
-    def merge_bilingual_srt(folder):
+    def merge_bilingual_srt(paths):
         """
         合并双语字幕 (文件夹下的 英文.srt 和 中文.srt)
-        :param folder: 文件夹路径
+        :param paths: 文件夹路径或文件路径列表
         :return: Generator yielding result messages
         """
-        if not os.path.isdir(folder):
-            yield f"错误: 不是一个文件夹: {folder}"
-            return
-            
-        results = merge_srt.process_directory(folder)
-        for msg in results:
-            yield msg
+        if isinstance(paths, str):
+            if os.path.isdir(paths):
+                # 兼容旧调用 (虽然后面我们会改 UI，但保持健壮性)
+                 paths = [paths]
+            else:
+                 # 单个文件
+                 paths = [paths]
+                 
+        # 分离目录和文件
+        dirs = set()
+        files = []
+        for p in paths:
+            if os.path.isdir(p):
+                dirs.add(p)
+            elif os.path.isfile(p):
+                files.append(p)
+                
+        # 处理目录
+        for d in dirs:
+            results = merge_srt.process_directory(d)
+            for msg in results:
+                yield msg
+                
+        # 处理文件列表
+        if files:
+            results = merge_srt.process_files(files)
+            for msg in results:
+                yield msg
 
     @staticmethod
-    def rename_subtitles(folder):
+    def rename_subtitles(paths):
         """
         重命名字幕文件以匹配视频文件
-        :param folder: 文件夹路径
+        :param paths: 文件夹路径或文件路径列表
         :return: Generator yielding result messages
         """
-        if not os.path.isdir(folder):
-            yield f"错误: 不是一个文件夹: {folder}"
-            return
+        if isinstance(paths, str):
+            if os.path.isdir(paths):
+                paths = [paths]
+            else:
+                paths = [paths]
 
-        count, msg = rename_sub.process_directory(folder)
-        yield msg
+        # 分离目录和文件
+        dirs = set()
+        files = []
+        for p in paths:
+            if os.path.isdir(p):
+                dirs.add(p)
+            elif os.path.isfile(p):
+                files.append(p)
+                
+        # 处理目录
+        for d in dirs:
+            count, msg = rename_sub.process_directory(d)
+            yield msg
+            
+        # 处理文件列表
+        if files:
+            count, msg = rename_sub.process_files(files)
+            yield msg
 
     @staticmethod
     def scale_ass_outline(paths):

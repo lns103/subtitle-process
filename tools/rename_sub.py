@@ -47,6 +47,46 @@ def rename_subtitle_files(video_file_list, subtitle_file_list, path):
             pass
     return number
 
+def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths):
+    count = 0
+    # 建立视频文件字典 SxxExx -> full_path
+    video_map = {}
+    for v_path in video_full_paths:
+        v_name = os.path.basename(v_path)
+        se = extract_season_episode(v_name)
+        if se:
+            video_map[se] = v_path # (season, episode) -> path
+
+    for s_path in subtitle_full_paths:
+        s_name = os.path.basename(s_path)
+        se = extract_season_episode(s_name)
+        
+        if se and se in video_map:
+            # Found match
+            v_path = video_map[se]
+            v_name = os.path.basename(v_path)
+            
+            # Construct new name
+            # 保持字幕所在的目录不变
+            s_dir = os.path.dirname(s_path)
+            s_ext = os.path.splitext(s_name)[1]
+            
+            # case insensitive replacement for 'ssa' -> 'ass'
+            new_ext = case_insensitive_replace(s_ext, 'ssa', 'ass')
+            
+            new_sub_name = os.path.splitext(v_name)[0] + new_ext
+            new_sub_full_path = os.path.join(s_dir, new_sub_name)
+            
+            if s_path != new_sub_full_path:
+                try:
+                    os.rename(s_path, new_sub_full_path)
+                    count += 1
+                    print(f"\033[0m{count}. {s_name}\n  \033[1m -> {new_sub_name}\033[0m")
+                except OSError as e:
+                    print(f"Error renaming {s_name}: {e}")
+                    
+    return count
+
 # # 从命令行参数获取路径
 # path = sys.argv[1].replace('"', '')
 # path = path.replace('\\','/')
@@ -64,6 +104,25 @@ def process_directory(folder):
     
     msg = f"Find {len(video_file_list)} videos and {len(subtitle_file_list)} subs, rename {count} subs."
     print(msg)
+    return count, msg
+
+def process_files(file_list):
+    """
+    处理给定的文件列表中的字幕重命名
+    :param file_list: 文件路径列表
+    """
+    video_files = []
+    subtitle_files = []
+    
+    for f in file_list:
+        ext = os.path.splitext(f)[1].lower()
+        if ext in video_extensions:
+            video_files.append(f)
+        elif ext in subtitle_extensions:
+            subtitle_files.append(f)
+            
+    count = rename_subtitle_files_by_paths(video_files, subtitle_files)
+    msg = f"In list: found {len(video_files)} videos and {len(subtitle_files)} subs, rename {count} subs."
     return count, msg
 
 if __name__ == "__main__":

@@ -158,6 +158,84 @@ def process_directory(folder):
         
     return results
 
+def process_files(file_list):
+    """
+    处理给定的文件列表中的双语字幕合并
+    :param file_list: 文件路径列表
+    """
+    results = []
+    
+    # 1. 分类文件
+    eng_files = []
+    zh_files = [] # 存储中文文件路径，便于后续检查是否匹配
+    
+    # helper for checking zh
+    def is_zh_file(f):
+        return f.endswith(".zh.srt") or f.endswith(".zh-CN.srt")
+        
+    for f in file_list:
+        if not f.endswith(".srt"):
+            continue
+            
+        if is_zh_file(f):
+            zh_files.append(f)
+        else:
+            eng_files.append(f)
+    
+    # 2. 建立查找字典: base_name -> full_path for .zh.srt
+    zh_map = {}
+    for f in zh_files:
+        if f.endswith(".zh.srt"):
+            # key: d:/path/video.zh.srt -> d:/path/video
+            base = f[:-7] 
+        elif f.endswith(".zh-CN.srt"):
+             base = f[:-10]
+        else:
+            continue
+        zh_map[os.path.normpath(base).lower()] = f
+
+    matched_count = 0
+    unmatched_count = 0
+    
+    # 记录已匹配的中文文件集合
+    matched_zh_files = set()
+
+    # 3. 遍历英文文件寻找匹配
+    for eng_path in eng_files:
+        base, _ = os.path.splitext(eng_path)
+        # uniform key
+        key = os.path.normpath(base).lower()
+        
+        if key in zh_map:
+            zh_path = zh_map[key]
+            matched_zh_files.add(zh_path)
+            
+            # 确定输出目录: 就在当前文件目录下创建一个 merge 文件夹
+            folder = os.path.dirname(eng_path)
+            output_folder = os.path.join(folder, "merge")
+            os.makedirs(output_folder, exist_ok=True)
+            
+            output_filename = f"{os.path.basename(base)}.zh&en.ass"
+            output_path = os.path.join(output_folder, output_filename)
+            
+            success, msg = merge_and_save(eng_path, zh_path, output_path, os.path.basename(base))
+            results.append(msg)
+            matched_count += 1
+        else:
+            unmatched_count += 1
+            results.append(f"未找到匹配中文文件: {os.path.basename(eng_path)}")
+    
+    # 4. 检查未匹配的中文文件
+    for zh_path in zh_files:
+        if zh_path not in matched_zh_files:
+            unmatched_count += 1
+            results.append(f"未找到匹配英文文件: {os.path.basename(zh_path)}")
+            
+    if matched_count > 0 or unmatched_count > 0:
+        results.append(f"处理完成: 成功合并 {matched_count} 对，未匹配 {unmatched_count} 个")
+            
+    return results
+
 def main():
     if len(sys.argv) < 2:
         print("用法: python merge_srt.py <srt文件所在文件夹>")

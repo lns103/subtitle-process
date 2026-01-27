@@ -196,7 +196,7 @@ class App(CTk):
         label = ctk.CTkLabel(frame, text="合并双语字幕 (SRT -> ASS)", font=self.font_title)
         label.pack(pady=10, anchor="w")
         
-        info = ctk.CTkLabel(frame, text="说明: 要求文件夹内同时存在 .srt 和 .zh.srt (或 .zh-CN.srt) 文件。\n输出到 merge 子文件夹。", font=self.font_normal, justify="left")
+        info = ctk.CTkLabel(frame, text="说明: 要求文件夹内同时存在 .srt 和 .zh.srt (或 .zh-CN.srt) 文件。\n也可直接拖拽配对的 .srt 文件。", font=self.font_normal, justify="left")
         info.pack(pady=5, anchor="w")
 
         ctk.CTkButton(frame, text="选择文件夹合并", font=self.font_normal, command=lambda: self.run_task(self.task_merge_bilingual)).pack(pady=20, anchor="w")
@@ -204,7 +204,7 @@ class App(CTk):
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(frame, border_width=2, border_color="gray")
         dnd_frame.pack(pady=20, fill="both", expand=True)
-        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹到此处", font=self.font_normal, text_color="gray")
+        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 
         if HAS_DND:
@@ -218,7 +218,7 @@ class App(CTk):
         label = ctk.CTkLabel(frame, text="批量重命名字幕", font=self.font_title)
         label.pack(pady=10, anchor="w")
         
-        info = ctk.CTkLabel(frame, text="说明: 根据视频文件名 (SxxExx) 重命名对应的字幕文件。", font=self.font_normal, justify="left")
+        info = ctk.CTkLabel(frame, text="说明: 根据视频文件名 (SxxExx) 重命名对应的字幕文件。\n支持拖拽文件夹或视频+字幕文件。", font=self.font_normal, justify="left")
         info.pack(pady=5, anchor="w")
         
         ctk.CTkButton(frame, text="选择文件夹重命名", font=self.font_normal, command=lambda: self.run_task(self.task_rename_subs)).pack(pady=20, anchor="w")
@@ -226,7 +226,7 @@ class App(CTk):
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(frame, border_width=2, border_color="gray")
         dnd_frame.pack(pady=20, fill="both", expand=True)
-        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹到此处", font=self.font_normal, text_color="gray")
+        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 
         if HAS_DND:
@@ -351,20 +351,12 @@ class App(CTk):
     def on_drop_merge(self, event):
         files = self.parse_drop_files(event.data)
         if not files: return
-        folders = [f for f in files if os.path.isdir(f)]
-        if folders:
-            self.run_task(lambda: self.task_merge_bilingual(folders[0])) # 只处理第一个文件夹
-        else:
-            self.log("请拖拽文件夹")
+        self.run_task(lambda: self.task_merge_bilingual(files))
 
     def on_drop_rename(self, event):
         files = self.parse_drop_files(event.data)
         if not files: return
-        folders = [f for f in files if os.path.isdir(f)]
-        if folders:
-            self.run_task(lambda: self.task_rename_subs(folders[0]))
-        else:
-            self.log("请拖拽文件夹")
+        self.run_task(lambda: self.task_rename_subs(files))
 
     def on_drop_extract(self, event):
         files = self.parse_drop_files(event.data)
@@ -524,23 +516,23 @@ class App(CTk):
 
     # Removed task_smart_process as it is replaced by explicit drag zones
 
-    def task_merge_bilingual(self, folder=None):
-        if not folder:
+    def task_merge_bilingual(self, paths=None):
+        if not paths:
             paths = self.get_paths("folder")
             if not paths: return
-            folder = paths[0]
-        self.log(f"开始合并双语字幕: {folder}")
-        for msg in SubtitleTool.merge_bilingual_srt(folder):
+            
+        self.log(f"开始合并双语字幕: {len(paths)} 个项目")
+        for msg in SubtitleTool.merge_bilingual_srt(paths):
             self.log(msg)
         self.log("任务结束")
 
-    def task_rename_subs(self, folder=None):
-        if not folder:
+    def task_rename_subs(self, paths=None):
+        if not paths:
              paths = self.get_paths("folder")
              if not paths: return
-             folder = paths[0]
-        self.log(f"开始重命名字幕: {folder}")
-        for msg in SubtitleTool.rename_subtitles(folder):
+             
+        self.log(f"开始重命名字幕: {len(paths)} 个项目")
+        for msg in SubtitleTool.rename_subtitles(paths):
             self.log(msg)
         self.log("任务结束")
 

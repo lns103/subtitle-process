@@ -44,6 +44,12 @@ ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark
 DEFAULT_FONT = ("Microsoft YaHei", 12)
 
 
+
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "0.0.0"
+
 class App(CTk):
     def __init__(self):
         super().__init__()
@@ -55,7 +61,7 @@ class App(CTk):
         self.font_title = ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold")
 
 
-        self.title("Subtitle Tools / 字幕工具箱")
+        self.title(f"Subtitle Tools / 字幕工具箱 v{__version__}")
         self.geometry("800x600")
 
         self.grid_columnconfigure(1, weight=1)

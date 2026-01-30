@@ -399,6 +399,10 @@ class App(CTk):
             self.log("无法获取媒体信息 (ffprobe 失败?)")
             return
             
+        if info.get("warnings"):
+            for w in info["warnings"]:
+                self.log(w)
+            
         # Get defaults
         recommendations = SubtitleTool.get_extraction_recommendation(info)
         

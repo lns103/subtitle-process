@@ -74,6 +74,11 @@ class SubtitleExtractor:
                 }
                 info["subtitles"].append(sub_info)
                 
+            # Check for missing codec (MKV fallback)
+            if filepath.lower().endswith('.mkv') and any(not s.get("codec_name") for s in info["subtitles"]):
+                 SubtitleExtractor.enrich_with_mkvmerge(filepath, info)
+                 info.setdefault("warnings", []).append("注意: 检测到 FFprobe 未识别的字幕编码，已调用 mkvmerge 补充信息。")
+
             return info
             
         except Exception as e:
@@ -158,6 +163,94 @@ class SubtitleExtractor:
         pass # implemented in extract_subtitles_v2
 
     @staticmethod
+    def enrich_with_mkvmerge(filepath, info):
+        """
+        Use mkvmerge -J to get track info and fill missing codec_name
+        """
+        try:
+            cmd = ["mkvmerge", "-J", filepath]
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
+            if result.returncode != 0:
+                print(f"Mkvmerge failed with code {result.returncode}")
+                return
+
+            mkv_data = json.loads(result.stdout)
+            tracks = mkv_data.get("tracks", [])
+            
+            # Map by ID (subtitles only)
+            track_map = {t["id"]: t for t in tracks if t["type"] == "subtitles"}
+            
+            for sub in info["subtitles"]:
+                idx = sub["index"]
+                if idx in track_map:
+                    mkv_track = track_map[idx]
+                    # If codec_name is missing, or we prefer mkv info
+                    if not sub.get("codec_name"):
+                        sub["codec_name"] = mkv_track.get("codec", "unknown")
+                        sub["use_mkvextract"] = True
+                        if "properties" in mkv_track:
+                             sub["codec_id_mkv"] = mkv_track["properties"].get("codec_id")
+        except Exception as e:
+            print(f"Error executing mkvmerge: {e}")
+
+    @staticmethod
+    def run_mkvextract(filepath, subs, output_dir):
+        """
+        Batch extract using mkvextract
+        """
+        yield f"正在使用 mkvextract 提取 {len(subs)} 个字幕轨道..."
+        
+        args = []
+        processed_files = []
+        base_name = os.path.splitext(os.path.basename(filepath))[0]
+        
+        for sub in subs:
+            idx = sub["index"]
+            lang = sub.get("language", "und")
+            codec = sub.get("codec_name", "").lower()
+            
+            ext = "srt" # fallback
+            if "webvtt" in codec or "vtt" in codec:
+                ext = "vtt"
+            elif "subrip" in codec or "srt" in codec:
+                ext = "srt"
+            elif "ass" in codec or "ssa" in codec:
+                ext = "ass"
+            elif "pgs" in codec:
+                ext = "sup"
+            elif "vobsub" in codec:
+                ext = "idx" 
+            
+            out_filename = f"{base_name}.{lang}.{idx}.{ext}"
+            out_path = os.path.join(output_dir, out_filename)
+            
+            args.append(f"{idx}:{out_path}")
+            processed_files.append(out_filename)
+            
+        cmd = ["mkvextract", "tracks", filepath] + args
+        
+        try:
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', startupinfo=startupinfo)
+            if proc.returncode == 0:
+                yield f"提取成功 (mkvextract): {output_dir}"
+                for f in processed_files:
+                    yield f" - {f}"
+            else:
+                yield f"Mkvextract error: {proc.stdout}"
+        except Exception as e:
+            yield f"运行 mkvextract 出错: {e}"
+
+    @staticmethod
     def extract_subtitles_v2(filepath, selected_subs, output_dir=None):
         """
         selected_subs: list of subtitle dictionaries (from get_media_info)
@@ -171,71 +264,74 @@ class SubtitleExtractor:
             
         base_name = os.path.splitext(os.path.basename(filepath))[0]
         
-        cmd = ["ffmpeg", "-i", filepath, "-y"]
-        # -y: overwrite
-        
-        processed_files = []
+        mkv_subs = []
+        ffmpeg_subs = []
         
         for sub in selected_subs:
-            idx = sub["index"]
-            lang = sub["language"]
-            codec = sub["codec_name"]
-            
-            # Determine extension
-            ext = "srt"
-            if codec == "ass" or codec == "ssa":
-                ext = "ass"
-            elif codec == "mov_text" or codec == "webvtt" or codec == "subrip":
-                ext = "srt"
+            # Use mkvextract if flagged or if codec is missing (though enrichment should have fixed it, maybe codec still unknown)
+            if sub.get("use_mkvextract"):
+                mkv_subs.append(sub)
             else:
-                # pgs, dvd_sub (bitmap) -> 无法直接转 srt，只能提取 idx/sub 或者 mks?
-                # 用户没提 OCR，只说提取。Bitmap 字幕提取为 srt 必须 OCR。
-                # 这里暂时只处理文本格式，Graphic sub 暂且跳过 or 提取为 .sup?
-                # 用户要求：mp4 mov_text->srt, mkv 原格式。
-                # 如果是 hmv_pgs_subtitle，ffmpeg 无法直接转文本。
-                # 我们先默认提取为 srt，如果 codec 是 graphical，ffmpeg 会报错。
-                # 为了稳健，如果是 image based，我们可能不做处理或者提取为 sup。
-                if "pgs" in codec or "dvd" in codec:
-                    ext = "sup" # 尝试提取为 sup
-            
-            # 构造输出文件名： VideoName.Lang.Index.Ext
-            out_filename = f"{base_name}.{lang}.{idx}.{ext}"
-            out_path = os.path.join(output_dir, out_filename)
-            
-            cmd.extend(["-map", f"0:{idx}", out_path])
-            processed_files.append(out_filename)
+                ffmpeg_subs.append(sub)
         
-        # 执行命令
-        try:
-            # Windows hide window
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                
-            yield f"正在提取 {len(selected_subs)} 个字幕轨道..."
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', startupinfo=startupinfo)
+        # 1. mkvextract tasks
+        if mkv_subs:
+            yield from SubtitleExtractor.run_mkvextract(filepath, mkv_subs, output_dir)
             
-            # 读取输出
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                # ffmpeg output is verbose, maybe just log last line or specific progress?
-                # yield line.strip() 
-                pass
-                
-            proc.wait()
+        # 2. ffmpeg tasks
+        if ffmpeg_subs:
+            cmd = ["ffmpeg", "-i", filepath, "-y"]
+            processed_files = []
             
-            if proc.returncode == 0:
-                yield f"提取成功，已输出到: {output_dir}"
-                for f in processed_files:
-                    yield f" - {f}"
-            else:
-                yield "提取过程中发生错误 (可能不支持的字幕格式转换)"
+            for sub in ffmpeg_subs:
+                idx = sub["index"]
+                lang = sub["language"]
+                codec = sub.get("codec_name")
                 
-        except Exception as e:
-            yield f"运行 FFmpeg 出错: {e}"
+                # Determine extension
+                ext = "srt"
+                if codec:
+                    codec_lower = codec.lower()
+                    if codec_lower in ["ass", "ssa"]:
+                        ext = "ass"
+                    elif codec_lower in ["mov_text", "webvtt", "subrip"]:
+                        ext = "srt"
+                    elif "pgs" in codec_lower or "dvd" in codec_lower:
+                        ext = "sup"
+                
+                out_filename = f"{base_name}.{lang}.{idx}.{ext}"
+                out_path = os.path.join(output_dir, out_filename)
+                
+                cmd.extend(["-map", f"0:{idx}", out_path])
+                processed_files.append(out_filename)
+            
+            try:
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    
+                yield f"正在提取 {len(ffmpeg_subs)} 个字幕轨道 (FFmpeg)..."
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', startupinfo=startupinfo)
+                
+                while True:
+                    line = proc.stdout.readline()
+                    if not line:
+                        break
+                    # yield line.strip()
+                    pass
+                    
+                proc.wait()
+                
+                if proc.returncode == 0:
+                    yield f"提取成功 (FFmpeg)，已输出到: {output_dir}"
+                    for f in processed_files:
+                        yield f" - {f}"
+                else:
+                    yield "FFmpeg 提取过程中发生错误"
+                    
+            except Exception as e:
+                yield f"运行 FFmpeg 出错: {e}"
 
 if __name__ == "__main__":
     # Test

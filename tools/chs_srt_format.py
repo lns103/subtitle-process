@@ -4,7 +4,21 @@ import os
 
 def format_zh_text(zh_text: str) -> str:
     # 替换常见标点符号格式
-    zh_text = zh_text.replace("，", "  ").replace("。", "  ").replace("！", "! ").replace("？", "? ")
+    zh_text = zh_text.replace("，", " ")
+    zh_text = zh_text.replace("。", " ")
+    zh_text = zh_text.replace("！", "! ")
+    zh_text = zh_text.replace("？", "? ")
+    zh_text = zh_text.replace("、", " ")
+    zh_text = zh_text.replace("；", "; ")
+    zh_text = zh_text.replace("：", ": ")
+    zh_text = zh_text.replace("（", "(")
+    zh_text = zh_text.replace("）", ")")
+    zh_text = zh_text.replace("【", "[")
+    zh_text = zh_text.replace("】", "]")
+    zh_text = zh_text.replace("“", "\"")
+    zh_text = zh_text.replace("”", "\"")
+    zh_text = zh_text.replace("‘", "\'")
+    zh_text = zh_text.replace("’", "\'")
 
     # 去掉标点前的多余空格
     zh_text = re.sub(r"\s+\"", "\"", zh_text)

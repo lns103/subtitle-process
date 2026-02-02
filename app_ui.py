@@ -159,41 +159,49 @@ class App(CTk):
 
         # 选项
         self.clean_skip_merge_var = ctk.BooleanVar(value=False)
-        chk = ctk.CTkCheckBox(frame, text="SRT: 跳过合并短字幕", variable=self.clean_skip_merge_var, font=self.font_normal)
-        chk.pack(pady=5, anchor="w")
 
-        # 按钮区
-        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_frame.pack(pady=10, fill="x")
+        # 统一网格区域 (按钮 + 拖拽)
+        grid_container = ctk.CTkFrame(frame, fg_color="transparent")
+        grid_container.pack(pady=10, fill="both", expand=True)
 
-        ctk.CTkButton(btn_frame, text="选择文件/文件夹 (清理SRT)", font=self.font_normal, command=lambda: self.run_task(self.task_clean_srt)).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="选择文件/文件夹 (格式化中文SRT)", font=self.font_normal, command=lambda: self.run_task(self.task_format_chs)).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="选择文件/文件夹 (缩放ASS描边)", font=self.font_normal, command=lambda: self.run_task(self.task_scale_ass)).pack(side="left", padx=5)
+        grid_container.grid_columnconfigure(0, weight=1)
+        grid_container.grid_columnconfigure(1, weight=1)
+        grid_container.grid_columnconfigure(2, weight=1)
+        grid_container.grid_rowconfigure(1, weight=1)
+
+        # 按钮 (Row 0)
+        ctk.CTkButton(grid_container, text="选择文件/文件夹 (清理SRT)", font=self.font_normal, command=lambda: self.run_task(self.task_clean_srt)).grid(row=0, column=0, padx=5, pady=(0, 10), sticky="ew")
+        ctk.CTkButton(grid_container, text="选择文件/文件夹 (中文标点清理)", font=self.font_normal, command=lambda: self.run_task(self.task_format_chs)).grid(row=0, column=1, padx=5, pady=(0, 10), sticky="ew")
+        ctk.CTkButton(grid_container, text="选择文件/文件夹 (缩放ASS描边)", font=self.font_normal, command=lambda: self.run_task(self.task_scale_ass)).grid(row=0, column=2, padx=5, pady=(0, 10), sticky="ew")
+
+        # 1. 清理 SRT Config + DND (Row 1, Column 0)
+        # 使用 sub-frame 包含 Checkbox 和 DND，实现高度压缩和底部对齐
+        col0_frame = ctk.CTkFrame(grid_container, fg_color="transparent")
+        col0_frame.grid(row=1, column=0, padx=5, sticky="nsew")
+        col0_frame.grid_rowconfigure(1, weight=1) # DND expands
+        col0_frame.grid_columnconfigure(0, weight=1)
         
-        # 拖拽区域容器
-        dnd_container = ctk.CTkFrame(frame, fg_color="transparent")
-        dnd_container.pack(pady=10, fill="both", expand=True)
-        dnd_container.grid_columnconfigure(0, weight=1)
-        dnd_container.grid_columnconfigure(1, weight=1)
-        dnd_container.grid_columnconfigure(2, weight=1)
-
-        # 1. 清理 SRT 区域
-        self.dnd_clean = ctk.CTkFrame(dnd_container, border_width=2, border_color="gray")
-        self.dnd_clean.grid(row=0, column=0, padx=5, sticky="nsew")
+        # Checkbox at top of Col 0
+        chk = ctk.CTkCheckBox(col0_frame, text="跳过合并短字幕", variable=self.clean_skip_merge_var, font=self.font_normal)
+        chk.grid(row=0, column=0, pady=(0, 5), sticky="w")
         
-        lbl_clean = ctk.CTkLabel(self.dnd_clean, text="拖拽到此\n仅清理 SRT\n(移除统计)", font=self.font_normal, text_color="gray")
+        # DND Frame at bottom of Col 0
+        self.dnd_clean = ctk.CTkFrame(col0_frame, border_width=2, border_color="gray")
+        self.dnd_clean.grid(row=1, column=0, sticky="nsew")
+        
+        lbl_clean = ctk.CTkLabel(self.dnd_clean, text="拖拽到此\n仅清理 SRT\n(带移除内容统计)", font=self.font_normal, text_color="gray")
         lbl_clean.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 2. 格式化中文区域
-        self.dnd_format = ctk.CTkFrame(dnd_container, border_width=2, border_color="gray")
-        self.dnd_format.grid(row=0, column=1, padx=5, sticky="nsew")
+        # 2. 格式化中文 DND (Row 1)
+        self.dnd_format = ctk.CTkFrame(grid_container, border_width=2, border_color="gray")
+        self.dnd_format.grid(row=1, column=1, padx=5, sticky="nsew")
         
-        lbl_format = ctk.CTkLabel(self.dnd_format, text="拖拽到此\n格式化中文\n(标点处理)", font=self.font_normal, text_color="gray")
+        lbl_format = ctk.CTkLabel(self.dnd_format, text="拖拽到此\n格式化中文 SRT\n(标点处理)", font=self.font_normal, text_color="gray")
         lbl_format.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 3. ASS 缩放区域
-        self.dnd_ass = ctk.CTkFrame(dnd_container, border_width=2, border_color="gray")
-        self.dnd_ass.grid(row=0, column=2, padx=5, sticky="nsew")
+        # 3. ASS 缩放 DND (Row 1)
+        self.dnd_ass = ctk.CTkFrame(grid_container, border_width=2, border_color="gray")
+        self.dnd_ass.grid(row=1, column=2, padx=5, sticky="nsew")
         
         lbl_ass = ctk.CTkLabel(self.dnd_ass, text="拖拽到此\nASS 描边缩放\n(1080p优化)", font=self.font_normal, text_color="gray")
         lbl_ass.place(relx=0.5, rely=0.5, anchor="center")

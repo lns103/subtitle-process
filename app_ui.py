@@ -497,26 +497,15 @@ class App(CTk):
         self.log("提取任务结束")
 
     def parse_drop_files(self, data):
-        # tkinterdnd2 返回的路径如果是包含空格的，会用 {} 包裹
-        # 简单解析
-        if data.startswith('{') and data.endswith('}'):
-            # 这是一个简单这种，实际上可能多个文件 {file 1} {file 2}
-            import re
-            matches = re.findall(r'\{(.+?)\}|(\S+)', data)
-            # findall 返回 [('path included space', ''), ('', 'simple_path')]
-            return [m[0] if m[0] else m[1] for m in matches]
-            # 更简单的处理：
-            # data 这里通常是 "{path1} {path2}" 或 "path1 path2"
-        # 直接使用 split 可能有问题。这里暂时只支持单个文件或标准列表
-        # Windows 下通常是 {path}
-        paths = []
-        if data.startswith('{'):
-            parts = data.split('} {')
-            for p in parts:
-                paths.append(p.strip('{}'))
-        else:
-            paths.append(data)
-        return paths
+        if not data:
+            return []
+            
+        import re
+        # tkinterdnd2/Tcl list parsing:
+        # Regex matches: {path with spaces} OR non_space_path
+        # Note: This handles "{A} {B}", "A B", "{A} B", etc.
+        matches = re.findall(r'\{(.+?)\}|(\S+)', data)
+        return [m[0] if m[0] else m[1] for m in matches]
 
     def run_task(self, task_func):
         threading.Thread(target=task_func).start()

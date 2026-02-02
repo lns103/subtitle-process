@@ -186,9 +186,9 @@ class SubtitleTool:
         return subtitle_extractor.SubtitleExtractor.get_default_selection(info)
 
     @staticmethod
-    def extract_subtitles_stream(filepath, selected_subs):
+    def extract_subtitles_stream(filepath, selected_subs, total_duration=0):
         """
         提取字幕 (生成器)
         """
-        for msg in subtitle_extractor.SubtitleExtractor.extract_subtitles_v2(filepath, selected_subs):
+        for msg in subtitle_extractor.SubtitleExtractor.extract_subtitles_v2(filepath, selected_subs, total_duration=total_duration):
             yield msg

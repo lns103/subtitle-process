@@ -12,7 +12,7 @@ class SubtitleExtractor:
         cmd = [
             "ffprobe",
             "-v", "error",
-            "-show_entries", "stream=index,codec_name,codec_type:stream_disposition=default,dub,original,forced,hearing_impaired:stream_tags=language,title",
+            "-show_entries", "format=duration:stream=index,codec_name,codec_type:stream_disposition=default,dub,original,forced,hearing_impaired:stream_tags=language,title",
             "-of", "json",
             filepath
         ]
@@ -33,6 +33,7 @@ class SubtitleExtractor:
             streams = data.get("streams", [])
             
             info = {
+                "duration": float(data.get("format", {}).get("duration", 0)),
                 "audio_langs": [],
                 "default_audio_lang": None,
                 "subtitles": []
@@ -203,6 +204,7 @@ class SubtitleExtractor:
         """
         Batch extract using mkvextract
         """
+        import re
         yield f"正在使用 mkvextract 提取 {len(subs)} 个字幕轨道..."
         
         args = []
@@ -240,20 +242,41 @@ class SubtitleExtractor:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 
-            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', startupinfo=startupinfo)
+            # mkvextract outputs progress to stdout
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', startupinfo=startupinfo)
+            
+            # Match any digits followed by % (e.g. "Progress: 10%", "进度: 10%")
+            pattern = re.compile(r"(\d+)%")
+            
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                
+                # Check for progress
+                match = pattern.search(line)
+                if match:
+                    percent = match.group(1)
+                    yield f"提取进度 (MKV): {percent}%"
+                elif "Error" in line:
+                     yield f"MKV Error: {line.strip()}"
+
+            proc.wait()
+
             if proc.returncode == 0:
                 yield f"提取成功 (mkvextract): {output_dir}"
                 for f in processed_files:
                     yield f" - {f}"
             else:
-                yield f"Mkvextract error: {proc.stdout}"
+                yield f"Mkvextract process ended with code {proc.returncode}"
         except Exception as e:
             yield f"运行 mkvextract 出错: {e}"
 
     @staticmethod
-    def extract_subtitles_v2(filepath, selected_subs, output_dir=None):
+    def extract_subtitles_v2(filepath, selected_subs, output_dir=None, total_duration=0):
         """
         selected_subs: list of subtitle dictionaries (from get_media_info)
+        total_duration: float, total video duration in seconds for progress calculation
         """
         if not selected_subs:
             yield "未选择任何轨道"
@@ -305,6 +328,9 @@ class SubtitleExtractor:
                 cmd.extend(["-map", f"0:{idx}", out_path])
                 processed_files.append(out_filename)
             
+            import re
+            time_pattern = re.compile(r"time=(\d{2}):(\d{2}):(\d{2}\.\d+)")
+                
             try:
                 startupinfo = None
                 if os.name == 'nt':
@@ -318,8 +344,21 @@ class SubtitleExtractor:
                     line = proc.stdout.readline()
                     if not line:
                         break
-                    # yield line.strip()
-                    pass
+                    
+                    # Parse time for progress
+                    # frame= ... time=00:00:15.45 ...
+                    if "time=" in line and total_duration > 0:
+                        match = time_pattern.search(line)
+                        if match:
+                            h, m, s = match.groups()
+                            current_seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                            percent = int(current_seconds / total_duration * 100)
+                            yield f"提取进度 (FFmpeg): {percent}%"
+                    
+                    # Also yield errors or other info sparingly? 
+                    # For now only yield progress logic or specific errors
+                    if "Error" in line or "Invalid" in line:
+                         pass # yield line.strip() 
                     
                 proc.wait()
                 

@@ -113,6 +113,7 @@ class App(CTk):
         
         self.log_box = ctk.CTkTextbox(self.log_frame, font=self.font_normal, height=100)
         self.log_box.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.last_log_was_progress = False
         self.log("程序已启动...")
         if not HAS_DND:
             self.log("提示: 未检测到 tkinterdnd2，拖拽功能不可用。")
@@ -122,8 +123,19 @@ class App(CTk):
         self.select_frame("clean")
 
     def log(self, message):
+        self.last_log_was_progress = False
         self.log_box.insert("end", str(message) + "\n")
         self.log_box.see("end")
+
+    def log_progress(self, message):
+        if self.last_log_was_progress:
+            # Delete the previous progress line (which is the last line before 'end')
+            # 'end-1l' to 'end' covers the last line including the newline
+            self.log_box.delete("end-2l", "end-1l") 
+        
+        self.log_box.insert("end", str(message) + "\n")
+        self.log_box.see("end")
+        self.last_log_was_progress = True
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         ctk.set_appearance_mode(new_appearance_mode)
@@ -304,7 +316,7 @@ class App(CTk):
         ctk.CTkLabel(frame, text="可用字幕轨道:", font=self.font_bold).grid(row=3, column=0, sticky="w", padx=10, pady=(10, 5))
         
         # Row 4: Scroll List (Expands)
-        self.tracks_scroll = ctk.CTkScrollableFrame(frame, label_text="Track List", height=100)
+        self.tracks_scroll = ctk.CTkScrollableFrame(frame, height=100)
         self.tracks_scroll.grid(row=4, column=0, sticky="nsew", padx=10, pady=5)
         
         # Row 5: Button (Fixed at bottom)
@@ -312,6 +324,7 @@ class App(CTk):
 
         # 内部变量
         self.current_video_path = None
+        self.current_video_info = None
         self.track_vars = [] # list of (dict_info, BooleanVar)
 
     # --- Helpers ---
@@ -399,6 +412,8 @@ class App(CTk):
             self.log("无法获取媒体信息 (ffprobe 失败?)")
             return
             
+        self.current_video_info = info
+            
         if info.get("warnings"):
             for w in info["warnings"]:
                 self.log(w)
@@ -460,8 +475,17 @@ class App(CTk):
             return
             
         self.log(f"开始提取 {len(selected_subs)} 个轨道...")
-        for msg in SubtitleTool.extract_subtitles_stream(self.current_video_path, selected_subs):
-            self.log(msg)
+        self.log(f"开始提取 {len(selected_subs)} 个轨道...")
+        
+        total_duration = 0
+        if self.current_video_info:
+            total_duration = self.current_video_info.get("duration", 0)
+            
+        for msg in SubtitleTool.extract_subtitles_stream(self.current_video_path, selected_subs, total_duration=total_duration):
+            if "提取进度" in msg:
+                self.log_progress(msg)
+            else:
+                self.log(msg)
         self.log("提取任务结束")
 
     def parse_drop_files(self, data):

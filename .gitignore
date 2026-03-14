@@ -12,3 +12,4 @@ verify/
 *.spec
 dist/
 build/
+config.json

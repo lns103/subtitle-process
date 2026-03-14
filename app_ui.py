@@ -45,14 +45,47 @@ DEFAULT_FONT = ("Microsoft YaHei", 12)
 
 
 
+import json
+
 try:
     from version import __version__
 except ImportError:
     __version__ = "0.0.0"
 
 class App(CTk):
+    CONFIG_FILE = "config.json"
+    
+    def load_config(self):
+        default_config = {
+            "merge_translated_suffix": ".zh.srt",
+            "merge_lang1_style_name": "Translate",
+            "merge_lang1_style_def": "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1",
+            "merge_lang2_style_name": "Original",
+            "merge_lang2_style_def": "Arial, 40, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1",
+            "merge_author": "default",
+            "merge_comment": "",
+            "merge_output_suffix": ".zh&en.ass"
+        }
+        if os.path.exists(self.CONFIG_FILE):
+            try:
+                with open(self.CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    user_config = json.load(f)
+                    default_config.update(user_config)
+            except Exception as e:
+                print(f"Failed to load config: {e}")
+        return default_config
+
+    def save_config(self):
+        try:
+            with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
     def __init__(self):
         super().__init__()
+        
+        self.config = self.load_config()
         
         # 预先定义字体 helper
         self.font_normal = ctk.CTkFont(family="Microsoft YaHei", size=12)
@@ -222,15 +255,50 @@ class App(CTk):
         frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.frames["merge"] = frame
         
-        label = ctk.CTkLabel(frame, text="合并双语字幕 (SRT -> ASS)", font=self.font_title)
+        # 顶部布局分两列
+        top_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        top_frame.pack(fill="x", pady=10)
+        
+        left_col = ctk.CTkFrame(top_frame, fg_color="transparent")
+        left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        right_col = ctk.CTkFrame(top_frame, fg_color="transparent")
+        right_col.pack(side="right", fill="both", expand=True)
+
+        label = ctk.CTkLabel(left_col, text="合并双语字幕 (SRT -> ASS)", font=self.font_title)
         label.pack(pady=10, anchor="w")
         
-        info = ctk.CTkLabel(frame, text="说明: 要求文件夹内同时存在 .srt 和 .zh.srt (或 .zh-CN.srt) 文件。\n也可直接拖拽配对的 .srt 文件。", font=self.font_normal, justify="left")
+        info = ctk.CTkLabel(left_col, text="说明: 要求文件夹内同时存在原语言和翻译语言文件。\n默认为 .srt 和 .zh.srt。\n也可直接拖拽配对的源语言 .srt 文件。", font=self.font_normal, justify="left")
         info.pack(pady=5, anchor="w")
 
-        ctk.CTkButton(frame, text="选择文件夹合并", font=self.font_normal, command=lambda: self.run_task(self.task_merge_bilingual)).pack(pady=20, anchor="w")
+        ctk.CTkButton(left_col, text="选择文件夹合并", font=self.font_normal, command=lambda: self.run_task(self.task_merge_bilingual)).pack(pady=20, anchor="w")
+        
+        # 右侧配置项
+        def add_config_row(parent, text, key):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(row, text=text, width=120, anchor="w", font=self.font_normal).pack(side="left")
+            var = ctk.StringVar(value=self.config.get(key, ""))
+            def on_change(*args):
+                self.config[key] = var.get()
+                self.save_config()
+            var.trace_add("write", on_change)
+            entry = ctk.CTkEntry(row, textvariable=var, font=self.font_normal)
+            entry.pack(side="left", fill="x", expand=True)
+            return var
+
+        ctk.CTkLabel(right_col, text="自定义设置", font=self.font_bold).pack(pady=(0, 5), anchor="w")
+        self.var_merge_suffix = add_config_row(right_col, "翻译文件后缀:", "merge_translated_suffix")
+        self.var_merge_out_suffix = add_config_row(right_col, "合并后后缀:", "merge_output_suffix")
+        self.var_merge_l1_name = add_config_row(right_col, "翻译样式名:", "merge_lang1_style_name")
+        self.var_merge_l1_def = add_config_row(right_col, "翻译样式定义:", "merge_lang1_style_def")
+        self.var_merge_l2_name = add_config_row(right_col, "原始样式名:", "merge_lang2_style_name")
+        self.var_merge_l2_def = add_config_row(right_col, "原始样式定义:", "merge_lang2_style_def")
+        self.var_merge_author = add_config_row(right_col, "作者 (Author):", "merge_author")
+        self.var_merge_comment = add_config_row(right_col, "注释 (Comment):", "merge_comment")
         
         # 拖拽区域
+
         dnd_frame = ctk.CTkFrame(frame, border_width=2, border_color="gray")
         dnd_frame.pack(pady=20, fill="both", expand=True)
         dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.font_normal, text_color="gray")
@@ -604,8 +672,19 @@ class App(CTk):
             paths = self.get_paths("folder")
             if not paths: return
             
+        kwargs = {
+            "translated_suffix": self.config.get("merge_translated_suffix", ".zh.srt"),
+            "lang1_style_name": self.config.get("merge_lang1_style_name", "Translate"),
+            "lang1_style_def": self.config.get("merge_lang1_style_def", "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1"),
+            "lang2_style_name": self.config.get("merge_lang2_style_name", "Original"),
+            "lang2_style_def": self.config.get("merge_lang2_style_def", "Arial, 40, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1"),
+            "author": self.config.get("merge_author", "default"),
+            "comment": self.config.get("merge_comment", ""),
+            "output_suffix": self.config.get("merge_output_suffix", ".zh&en.ass")
+        }
+            
         self.log(f"开始合并双语字幕: {len(paths)} 个项目")
-        for msg in SubtitleTool.merge_bilingual_srt(paths):
+        for msg in SubtitleTool.merge_bilingual_srt(paths, **kwargs):
             self.log(msg)
         self.log("任务结束")
 

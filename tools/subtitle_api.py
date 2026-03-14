@@ -76,7 +76,7 @@ class SubtitleTool:
                 yield msg
 
     @staticmethod
-    def merge_bilingual_srt(paths):
+    def merge_bilingual_srt(paths, **kwargs):
         """
         合并双语字幕 (文件夹下的 英文.srt 和 中文.srt)
         :param paths: 文件夹路径或文件路径列表
@@ -101,13 +101,13 @@ class SubtitleTool:
                 
         # 处理目录
         for d in dirs:
-            results = merge_srt.process_directory(d)
+            results = merge_srt.process_directory(d, **kwargs)
             for msg in results:
                 yield msg
                 
         # 处理文件列表
         if files:
-            results = merge_srt.process_files(files)
+            results = merge_srt.process_files(files, **kwargs)
             for msg in results:
                 yield msg
 

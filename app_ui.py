@@ -84,8 +84,7 @@ class App(CTk):
         self.sidebar_button_rename = ctk.CTkButton(self.sidebar_frame, text="重命名字幕", font=self.font_normal, command=lambda: self.select_frame("rename"))
         self.sidebar_button_rename.grid(row=3, column=0, padx=20, pady=10)
 
-        self.sidebar_button_term = ctk.CTkButton(self.sidebar_frame, text="术语合并", font=self.font_normal, command=lambda: self.select_frame("term"))
-        self.sidebar_button_term.grid(row=4, column=0, padx=20, pady=10)
+
 
         self.sidebar_button_extract = ctk.CTkButton(self.sidebar_frame, text="字幕提取", font=self.font_normal, command=lambda: self.select_frame("extract"))
         self.sidebar_button_extract.grid(row=5, column=0, padx=20, pady=10)
@@ -105,7 +104,7 @@ class App(CTk):
         self.setup_clean_frame()
         self.setup_merge_frame()
         self.setup_rename_frame()
-        self.setup_term_frame()
+
         self.setup_extract_frame()
         self.setup_fps_frame()
         
@@ -263,32 +262,6 @@ class App(CTk):
             dnd_frame.drop_target_register(DND_FILES)
             dnd_frame.dnd_bind('<<Drop>>', self.on_drop_rename)
 
-    def setup_term_frame(self):
-        frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.frames["term"] = frame
-        
-        label = ctk.CTkLabel(frame, text="合并术语表 (JSON)", font=self.font_title)
-        label.pack(pady=10, anchor="w")
-        
-        self.term_file1 = ctk.StringVar()
-        self.term_file2 = ctk.StringVar()
-        
-        ctk.CTkButton(frame, text="选择文件 1 (基础)", font=self.font_normal, command=lambda: self.select_file(self.term_file1)).pack(pady=5, anchor="w")
-        self.entry_term1 = ctk.CTkEntry(frame, textvariable=self.term_file1, width=400, font=self.font_normal)
-        self.entry_term1.pack(pady=0, anchor="w")
-        
-        ctk.CTkButton(frame, text="选择文件 2 (追加)", font=self.font_normal, command=lambda: self.select_file(self.term_file2)).pack(pady=5, anchor="w")
-        self.entry_term2 = ctk.CTkEntry(frame, textvariable=self.term_file2, width=400, font=self.font_normal)
-        self.entry_term2.pack(pady=0, anchor="w")
-
-        if HAS_DND:
-            self.entry_term1.drop_target_register(DND_FILES)
-            self.entry_term1.dnd_bind('<<Drop>>', lambda e: self.on_drop_assign(e, self.term_file1))
-            self.entry_term2.drop_target_register(DND_FILES)
-            self.entry_term2.dnd_bind('<<Drop>>', lambda e: self.on_drop_assign(e, self.term_file2))
-        
-        
-        ctk.CTkButton(frame, text="开始合并", font=self.font_normal, command=lambda: self.run_task(self.task_merge_terms)).pack(pady=20, anchor="w")
 
     def setup_extract_frame(self):
         frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -664,20 +637,7 @@ class App(CTk):
             self.log(msg)
         self.log("任务结束")
 
-    def task_merge_terms(self):
-        f1 = self.term_file1.get()
-        f2 = self.term_file2.get()
-        if not f1 or not f2:
-            self.log("请选择两个 JSON 文件")
-            return
-        
-        output = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if not output: return
 
-        self.log("开始合并术语表...")
-        for msg in SubtitleTool.merge_terms(f1, f2, output):
-            self.log(msg)
-        self.log("任务结束")
 
 if __name__ == "__main__":
     app = App()

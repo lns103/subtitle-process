@@ -8,7 +8,7 @@ try:
     from . import rename_sub
     from . import ass_outlinescale
     from . import chs_srt_format
-    from . import terms_merge
+
     from . import subtitle_extractor
     from . import fps_converter
 except ImportError:
@@ -17,7 +17,7 @@ except ImportError:
     import rename_sub
     import ass_outlinescale
     import chs_srt_format
-    import terms_merge
+
     import subtitle_extractor
     import fps_converter
 
@@ -165,13 +165,6 @@ class SubtitleTool:
                 success, msg = ass_outlinescale.process_ass_file(p, p)
                 yield msg
 
-    @staticmethod
-    def merge_terms(file1, file2, output):
-        """
-        合并术语表 JSON
-        """
-        success, msg = terms_merge.merge_json_files(file1, file2, output)
-        yield msg
 
     @staticmethod
     def get_video_info(filepath):

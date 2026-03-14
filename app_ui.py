@@ -70,7 +70,7 @@ class App(CTk):
         # 左侧导航栏
         self.sidebar_frame = ctk.CTkFrame(self, width=140, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(6, weight=1)
+        self.sidebar_frame.grid_rowconfigure(7, weight=1)
 
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="字幕工具箱", font=self.font_large_bold)
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
@@ -90,12 +90,15 @@ class App(CTk):
         self.sidebar_button_extract = ctk.CTkButton(self.sidebar_frame, text="字幕提取", font=self.font_normal, command=lambda: self.select_frame("extract"))
         self.sidebar_button_extract.grid(row=5, column=0, padx=20, pady=10)
 
+        self.sidebar_button_fps = ctk.CTkButton(self.sidebar_frame, text="帧率转换", font=self.font_normal, command=lambda: self.select_frame("fps"))
+        self.sidebar_button_fps.grid(row=6, column=0, padx=20, pady=10)
+
         self.appearance_mode_label = ctk.CTkLabel(self.sidebar_frame, text="外观模式:", font=self.font_normal, anchor="w")
-        self.appearance_mode_label.grid(row=7, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=8, column=0, padx=20, pady=(10, 0))
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["System", "Light", "Dark"],
                                                                        font=self.font_normal,
                                                                        command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=8, column=0, padx=20, pady=(10, 20))
+        self.appearance_mode_optionemenu.grid(row=9, column=0, padx=20, pady=(10, 20))
         
         # 主功能区
         self.frames = {}
@@ -104,6 +107,7 @@ class App(CTk):
         self.setup_rename_frame()
         self.setup_term_frame()
         self.setup_extract_frame()
+        self.setup_fps_frame()
         
         # 底部日志区
         self.log_frame = ctk.CTkFrame(self, corner_radius=0, height=100)
@@ -335,6 +339,43 @@ class App(CTk):
         self.current_video_info = None
         self.track_vars = [] # list of (dict_info, BooleanVar)
 
+    def setup_fps_frame(self):
+        frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.frames["fps"] = frame
+        
+        label = ctk.CTkLabel(frame, text="帧率转换 (SRT/ASS)", font=self.font_title)
+        label.pack(pady=10, anchor="w")
+        
+        info = ctk.CTkLabel(frame, text="说明: 对包含时间轴的字幕进行帧率转换。源文件将被备份为 .bak。", font=self.font_normal, justify="left")
+        info.pack(pady=5, anchor="w")
+
+        fps_options = ["23.976", "24", "25", "29.97", "30", "59.94", "60"]
+        self.src_fps_var = ctk.StringVar(value="23.976")
+        self.dst_fps_var = ctk.StringVar(value="25")
+
+        options_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        options_frame.pack(pady=10, fill="x")
+
+        ctk.CTkLabel(options_frame, text="源帧率:", font=self.font_normal).pack(side="left", padx=5)
+        ctk.CTkComboBox(options_frame, values=fps_options, variable=self.src_fps_var, font=self.font_normal, width=120).pack(side="left", padx=5)
+
+        ctk.CTkLabel(options_frame, text="->", font=self.font_normal).pack(side="left", padx=10)
+
+        ctk.CTkLabel(options_frame, text="目标帧率:", font=self.font_normal).pack(side="left", padx=5)
+        ctk.CTkComboBox(options_frame, values=fps_options, variable=self.dst_fps_var, font=self.font_normal, width=120).pack(side="left", padx=5)
+
+        ctk.CTkButton(frame, text="选择文件/文件夹转换", font=self.font_normal, command=lambda: self.run_task(self.task_convert_fps)).pack(pady=20, anchor="w")
+
+        # 拖拽区域
+        dnd_frame = ctk.CTkFrame(frame, border_width=2, border_color="gray")
+        dnd_frame.pack(pady=20, fill="both", expand=True)
+        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.font_normal, text_color="gray")
+        dnd_label.place(relx=0.5, rely=0.5, anchor="center")
+
+        if HAS_DND:
+            dnd_frame.drop_target_register(DND_FILES)
+            dnd_frame.dnd_bind('<<Drop>>', self.on_drop_fps)
+
     # --- Helpers ---
 
     def select_file(self, var):
@@ -384,6 +425,11 @@ class App(CTk):
         files = self.parse_drop_files(event.data)
         if not files: return
         self.run_task(lambda: self.task_rename_subs(files))
+
+    def on_drop_fps(self, event):
+        files = self.parse_drop_files(event.data)
+        if not files: return
+        self.run_task(lambda: self.task_convert_fps_run(files))
 
     def on_drop_extract(self, event):
         files = self.parse_drop_files(event.data)
@@ -597,6 +643,24 @@ class App(CTk):
              
         self.log(f"开始重命名字幕: {len(paths)} 个项目")
         for msg in SubtitleTool.rename_subtitles(paths):
+            self.log(msg)
+        self.log("任务结束")
+
+    def task_convert_fps(self):
+        paths = self.get_paths()
+        if not paths: return
+        self.task_convert_fps_run(paths)
+
+    def task_convert_fps_run(self, paths):
+        src_fps_val = self.src_fps_var.get().strip()
+        dst_fps_val = self.dst_fps_var.get().strip()
+        
+        if not src_fps_val or not dst_fps_val:
+            self.log("帧率不能为空")
+            return
+            
+        self.log(f"开始转换帧率: {len(paths)} 个项目 ({src_fps_val} -> {dst_fps_val})")
+        for msg in SubtitleTool.convert_fps(paths, src_fps_val, dst_fps_val):
             self.log(msg)
         self.log("任务结束")
 

@@ -10,6 +10,7 @@ try:
     from . import chs_srt_format
     from . import terms_merge
     from . import subtitle_extractor
+    from . import fps_converter
 except ImportError:
     import srt_process
     import merge_srt
@@ -18,6 +19,7 @@ except ImportError:
     import chs_srt_format
     import terms_merge
     import subtitle_extractor
+    import fps_converter
 
 class SubtitleTool:
     """
@@ -191,4 +193,39 @@ class SubtitleTool:
         提取字幕 (生成器)
         """
         for msg in subtitle_extractor.SubtitleExtractor.extract_subtitles_v2(filepath, selected_subs, total_duration=total_duration):
+            yield msg
+
+    @staticmethod
+    def convert_fps(paths, src_fps, dst_fps):
+        """
+        转换字幕帧率
+        :param paths: 文件路径列表或目录路径
+        :param src_fps: 源帧率
+        :param dst_fps: 目标帧率
+        :return: Generator yielding result messages
+        """
+        if isinstance(paths, str):
+            if os.path.isdir(paths):
+                paths = [paths]
+            else:
+                paths = [paths]
+                
+        dirs = set()
+        files = []
+        for p in paths:
+            if os.path.isdir(p):
+                dirs.add(p)
+            elif os.path.isfile(p):
+                files.append(p)
+                
+        for d in dirs:
+            for root, _, filenames in os.walk(d):
+                for f in filenames:
+                    if f.lower().endswith(('.srt', '.ass')):
+                        full_path = os.path.join(root, f)
+                        success, msg = fps_converter.process_file(full_path, src_fps, dst_fps)
+                        yield msg
+                        
+        for f in files:
+            success, msg = fps_converter.process_file(f, src_fps, dst_fps)
             yield msg

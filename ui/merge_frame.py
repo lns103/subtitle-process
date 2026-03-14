@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import threading
+import re
 from tools.subtitle_api import SubtitleTool
 
 try:
@@ -7,6 +8,80 @@ try:
     HAS_DND = True
 except ImportError:
     HAS_DND = False
+
+# --- ASS 字段校验规则 ---
+_COLOR_RE = re.compile(r"^&H[0-9A-Fa-f]{8}$")
+
+def _v_str(s):
+    """非空字符串, 不含逗号"""
+    return bool(s) and "," not in s
+
+def _v_pos_num(s):
+    """正数 (整数或小数)"""
+    try: return float(s) > 0
+    except: return False
+
+def _v_num(s):
+    """任意数值"""
+    try: float(s); return True
+    except: return False
+
+def _v_nn_num(s):
+    """非负数值"""
+    try: return float(s) >= 0
+    except: return False
+
+def _v_nn_int(s):
+    """非负整数"""
+    try: return int(s) >= 0 and "." not in s
+    except: return False
+
+def _v_color(s):
+    """ASS 颜色格式 &HNNNNNNNN"""
+    return bool(_COLOR_RE.match(s))
+
+def _v_bold(s):
+    """0, 1 或 -1"""
+    return s in ("0", "1", "-1")
+
+def _v_bool01(s):
+    """0 或 1"""
+    return s in ("0", "1")
+
+def _v_border_style(s):
+    """1 或 3"""
+    return s in ("1", "3")
+
+def _v_alignment(s):
+    """1-9"""
+    return s in [str(i) for i in range(1, 10)]
+
+# 每个字段对应的校验函数
+_FIELD_VALIDATORS = {
+    "Fontname":         _v_str,
+    "Fontsize":         _v_pos_num,
+    "PrimaryColour":    _v_color,
+    "SecondaryColour":  _v_color,
+    "OutlineColour":    _v_color,
+    "BackColour":       _v_color,
+    "Bold":             _v_bold,
+    "Italic":           _v_bool01,
+    "Underline":        _v_bool01,
+    "StrikeOut":        _v_bool01,
+    "ScaleX":           _v_pos_num,
+    "ScaleY":           _v_pos_num,
+    "Spacing":          _v_num,
+    "Angle":            _v_num,
+    "BorderStyle":      _v_border_style,
+    "Outline":          _v_nn_num,
+    "Shadow":           _v_nn_num,
+    "Alignment":        _v_alignment,
+    "MarginL":          _v_nn_int,
+    "MarginR":          _v_nn_int,
+    "MarginV":          _v_nn_int,
+    "Encoding":         _v_nn_int,
+}
+
 
 class MergeStyleConfigDialog(ctk.CTkToplevel):
     def __init__(self, parent, config, save_callback):
@@ -33,11 +108,15 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         res_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(10, 0))
         ctk.CTkLabel(res_frame, text="分辨率 (PlayResX):", font=self.font_bold).pack(side="left", padx=5)
         self.var_playresx = ctk.StringVar(value=str(self.config.get("merge_playresx", 1920)))
-        ctk.CTkEntry(res_frame, textvariable=self.var_playresx, font=self.font_normal, width=80).pack(side="left", padx=5)
+        self.entry_playresx = ctk.CTkEntry(res_frame, textvariable=self.var_playresx, font=self.font_normal, width=80)
+        self.entry_playresx.pack(side="left", padx=5)
+        self.var_playresx.trace_add("write", lambda *_: self._live_validate_int(self.entry_playresx, self.var_playresx))
         
         ctk.CTkLabel(res_frame, text="(PlayResY):", font=self.font_bold).pack(side="left", padx=5)
         self.var_playresy = ctk.StringVar(value=str(self.config.get("merge_playresy", 1080)))
-        ctk.CTkEntry(res_frame, textvariable=self.var_playresy, font=self.font_normal, width=80).pack(side="left", padx=5)
+        self.entry_playresy = ctk.CTkEntry(res_frame, textvariable=self.var_playresy, font=self.font_normal, width=80)
+        self.entry_playresy.pack(side="left", padx=5)
+        self.var_playresy.trace_add("write", lambda *_: self._live_validate_int(self.entry_playresy, self.var_playresy))
 
         # Parameters definition
         self.ass_fields = [
@@ -60,9 +139,11 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         self.frame_l2 = ctk.CTkScrollableFrame(self)
         self.frame_l2.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
 
-        # Vars
+        # Vars and entry widgets
         self.vars_l1 = []
         self.vars_l2 = []
+        self.entries_l1 = []
+        self.entries_l2 = []
         
         # Meta info
         self.var_l1_name = ctk.StringVar(value=self.config.get("merge_lang1_style_name", "Translate"))
@@ -70,8 +151,8 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         self.var_author = ctk.StringVar(value=self.config.get("merge_author", "default"))
         self.var_comment = ctk.StringVar(value=self.config.get("merge_comment", ""))
 
-        self.setup_panel(self.frame_l1, "翻译样式 (Lang 1)", self.var_l1_name, self.config.get("merge_lang1_style_def", self.default_l1_def), self.vars_l1)
-        self.setup_panel(self.frame_l2, "原始样式 (Lang 2)", self.var_l2_name, self.config.get("merge_lang2_style_def", self.default_l2_def), self.vars_l2)
+        self.entry_l1_name = self.setup_panel(self.frame_l1, "翻译样式 (Lang 1)", self.var_l1_name, self.config.get("merge_lang1_style_def", self.default_l1_def), self.vars_l1, self.entries_l1)
+        self.entry_l2_name = self.setup_panel(self.frame_l2, "原始样式 (Lang 2)", self.var_l2_name, self.config.get("merge_lang2_style_def", self.default_l2_def), self.vars_l2, self.entries_l2)
         
         # Bottom frame
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -90,14 +171,16 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
-    def setup_panel(self, parent, title, name_var, style_def_str, vars_list):
+    def setup_panel(self, parent, title, name_var, style_def_str, vars_list, entries_list):
         ctk.CTkLabel(parent, text=title, font=self.font_bold).pack(pady=10, anchor="w")
         
         # Name
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", pady=2)
         ctk.CTkLabel(row, text="样式名称\nName", width=120, anchor="w", justify="left", font=self.font_normal).pack(side="left")
-        ctk.CTkEntry(row, textvariable=name_var, font=self.font_normal).pack(side="left", fill="x", expand=True)
+        name_entry = ctk.CTkEntry(row, textvariable=name_var, font=self.font_normal)
+        name_entry.pack(side="left", fill="x", expand=True)
+        name_var.trace_add("write", lambda *_: self._live_validate_text(name_entry, name_var))
 
         ctk.CTkFrame(parent, height=2, fg_color="gray").pack(fill="x", pady=10)
 
@@ -114,7 +197,13 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
             val = parts[i] if i < len(parts) else ""
             var = ctk.StringVar(value=val)
             vars_list.append(var)
-            ctk.CTkEntry(row, textvariable=var, font=self.font_normal).pack(side="left", fill="x", expand=True)
+            entry = ctk.CTkEntry(row, textvariable=var, font=self.font_normal)
+            entry.pack(side="left", fill="x", expand=True)
+            entries_list.append(entry)
+            validator = _FIELD_VALIDATORS.get(f_key, _v_str)
+            var.trace_add("write", lambda *_, e=entry, v=var, fn=validator: self._mark_entry(e, fn(v.get().strip())))
+        
+        return name_entry
 
     def restore_defaults(self):
         from tkinter import messagebox
@@ -134,22 +223,70 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         self.var_playresx.set("1920")
         self.var_playresy.set("1080")
                 
+    @staticmethod
+    def _mark_entry(entry, valid):
+        """标记输入框: 无效时红色边框, 有效时恢复默认"""
+        entry.configure(border_color="#E06666" if not valid else ctk.ThemeManager.theme["CTkEntry"]["border_color"])
+
+    def _is_positive_int(self, s):
+        try:
+            return int(s) > 0
+        except (ValueError, TypeError):
+            return False
+
+    def _live_validate_int(self, entry, var):
+        """实时校验正整数"""
+        self._mark_entry(entry, self._is_positive_int(var.get().strip()))
+
+    def _live_validate_text(self, entry, var):
+        """实时校验非空且不含逗号"""
+        val = var.get().strip()
+        self._mark_entry(entry, bool(val) and "," not in val)
+
     def save_and_close(self):
-        def_l1 = ", ".join([v.get() for v in self.vars_l1])
-        def_l2 = ", ".join([v.get() for v in self.vars_l2])
+        from tkinter import messagebox
+        has_error = False
+
+        # 1. 校验分辨率
+        for entry, var in [(self.entry_playresx, self.var_playresx), (self.entry_playresy, self.var_playresy)]:
+            ok = self._is_positive_int(var.get().strip())
+            self._mark_entry(entry, ok)
+            if not ok:
+                has_error = True
+
+        # 2. 校验样式名称
+        for entry, var in [(self.entry_l1_name, self.var_l1_name), (self.entry_l2_name, self.var_l2_name)]:
+            val = var.get().strip()
+            ok = _v_str(val)
+            self._mark_entry(entry, ok)
+            if not ok:
+                has_error = True
+
+        # 3. 按字段类型校验各项参数
+        for entries, vars_list in [(self.entries_l1, self.vars_l1), (self.entries_l2, self.vars_l2)]:
+            for i, (entry, var) in enumerate(zip(entries, vars_list)):
+                f_key = self.ass_fields[i][0]
+                validator = _FIELD_VALIDATORS.get(f_key, _v_str)
+                ok = validator(var.get().strip())
+                self._mark_entry(entry, ok)
+                if not ok:
+                    has_error = True
+
+        if has_error:
+            messagebox.showwarning("保存失败", "请修正标红的参数后再保存", parent=self)
+            return
+
+        def_l1 = ", ".join([v.get().strip() for v in self.vars_l1])
+        def_l2 = ", ".join([v.get().strip() for v in self.vars_l2])
         
-        self.config["merge_lang1_style_name"] = self.var_l1_name.get()
-        self.config["merge_lang2_style_name"] = self.var_l2_name.get()
+        self.config["merge_lang1_style_name"] = self.var_l1_name.get().strip()
+        self.config["merge_lang2_style_name"] = self.var_l2_name.get().strip()
         self.config["merge_lang1_style_def"] = def_l1
         self.config["merge_lang2_style_def"] = def_l2
         self.config["merge_author"] = self.var_author.get()
         self.config["merge_comment"] = self.var_comment.get()
-        
-        try:
-            self.config["merge_playresx"] = int(self.var_playresx.get() or 1920)
-            self.config["merge_playresy"] = int(self.var_playresy.get() or 1080)
-        except ValueError:
-            pass
+        self.config["merge_playresx"] = int(self.var_playresx.get().strip())
+        self.config["merge_playresy"] = int(self.var_playresy.get().strip())
         
         if self.save_callback:
             self.save_callback()

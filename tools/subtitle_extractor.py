@@ -217,8 +217,13 @@ class SubtitleExtractor:
             codec = sub.get("codec_name", "").lower()
             
             ext = "srt" # fallback
+            is_tmp_vtt = False
             if "webvtt" in codec or "vtt" in codec:
-                ext = "vtt"
+                if sub.get("convert_vtt_to_srt", False):
+                    ext = "vtt.tmp"
+                    is_tmp_vtt = True
+                else:
+                    ext = "vtt"
             elif "subrip" in codec or "srt" in codec:
                 ext = "srt"
             elif "ass" in codec or "ssa" in codec:
@@ -232,7 +237,9 @@ class SubtitleExtractor:
             out_path = os.path.join(output_dir, out_filename)
             
             args.append(f"{idx}:{out_path}")
-            processed_files.append(out_filename)
+            # Don't show .tmp files in the final success message directly
+            if not is_tmp_vtt:
+                processed_files.append(out_filename)
             
         cmd = ["mkvextract", "tracks", filepath] + args
         
@@ -301,6 +308,33 @@ class SubtitleExtractor:
         if mkv_subs:
             yield from SubtitleExtractor.run_mkvextract(filepath, mkv_subs, output_dir)
             
+            for sub in mkv_subs:
+                codec = sub.get("codec_name", "").lower()
+                if ("webvtt" in codec or "vtt" in codec) and sub.get("convert_vtt_to_srt", False):
+                    idx = sub["index"]
+                    lang = sub.get("language", "und")
+                    vtt_tmp_filename = f"{base_name}.{lang}.{idx}.vtt.tmp"
+                    srt_filename = f"{base_name}.{lang}.{idx}.srt"
+                    vtt_tmp_path = os.path.join(output_dir, vtt_tmp_filename)
+                    srt_path = os.path.join(output_dir, srt_filename)
+                    
+                    if os.path.exists(vtt_tmp_path):
+                        yield f"正在将 VTT 转换为 SRT: {srt_filename} ..."
+                        conv_cmd = ["ffmpeg", "-i", vtt_tmp_path, "-y", srt_path]
+                        startupinfo = None
+                        if os.name == 'nt':
+                            startupinfo = subprocess.STARTUPINFO()
+                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        try:
+                            res = subprocess.run(conv_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
+                            if res.returncode == 0:
+                                yield f"转换成功: {srt_filename}"
+                                os.remove(vtt_tmp_path)  # 转换成功后删除临时vtt文件
+                            else:
+                                yield f"转换 SRT 失败: {vtt_tmp_filename}"
+                        except Exception as e:
+                            yield f"转换 SRT 出错: {e}"
+            
         # 2. ffmpeg tasks
         if ffmpeg_subs:
             cmd = ["ffmpeg", "-i", filepath, "-y"]
@@ -318,7 +352,10 @@ class SubtitleExtractor:
                     if codec_lower in ["ass", "ssa"]:
                         ext = "ass"
                     elif codec_lower in ["mov_text", "webvtt", "subrip"]:
-                        ext = "srt"
+                        if codec_lower == "webvtt" and not sub.get("convert_vtt_to_srt", False):
+                            ext = "vtt"
+                        else:
+                            ext = "srt"
                     elif "pgs" in codec_lower or "dvd" in codec_lower:
                         ext = "sup"
                 

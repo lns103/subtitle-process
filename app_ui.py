@@ -463,10 +463,34 @@ class App(CTk):
             display_text = f"Track {idx}: {lang} ({codec}) {flag_str} {title}"
             
             var = ctk.BooleanVar(value=(idx in recommendations))
-            chk = ctk.CTkCheckBox(self.tracks_scroll, text=display_text, variable=var, font=self.font_normal)
-            chk.pack(anchor="w", pady=2, padx=5)
             
-            self.track_vars.append((sub, var))
+            track_frame = ctk.CTkFrame(self.tracks_scroll, fg_color="transparent")
+            track_frame.pack(anchor="w", fill="x", pady=2, padx=5)
+            
+            chk = ctk.CTkCheckBox(track_frame, text=display_text, variable=var, font=self.font_normal)
+            chk.pack(side="left")
+            
+            vtt_var = None
+            if codec and "webvtt" in codec.lower():
+                vtt_var = ctk.BooleanVar(value=True)
+                small_font = ctk.CTkFont(family="Microsoft YaHei", size=11)
+                vtt_chk = ctk.CTkCheckBox(track_frame, text="转为SRT", variable=vtt_var, font=small_font, checkbox_width=16, checkbox_height=16, text_color_disabled="gray")
+                vtt_chk.pack(side="left", padx=(10, 0))
+                
+                # 初始化状态
+                if not var.get():
+                    vtt_chk.configure(state="disabled", border_color="gray", fg_color="gray")
+                    
+                # 绑定事件关联状态
+                def toggle_vtt_state(track_var=var, v_chk=vtt_chk):
+                    if track_var.get():
+                        v_chk.configure(state="normal", border_color=ctk.ThemeManager.theme["CTkCheckBox"]["border_color"], fg_color=ctk.ThemeManager.theme["CTkCheckBox"]["fg_color"])
+                    else:
+                        v_chk.configure(state="disabled", border_color="gray", fg_color="gray")
+                
+                chk.configure(command=toggle_vtt_state)
+                
+            self.track_vars.append((sub, var, vtt_var))
 
     def task_dev_extract(self):
         if not self.current_video_path:
@@ -474,9 +498,18 @@ class App(CTk):
             return
             
         selected_subs = []
-        for sub_info, var in self.track_vars:
+        for track_item in self.track_vars:
+            if len(track_item) == 3:
+                sub_info, var, vtt_var = track_item
+            else:
+                sub_info, var = track_item
+                vtt_var = None
+                
             if var.get():
-                selected_subs.append(sub_info)
+                sub_copy = dict(sub_info)  # safe copy
+                if vtt_var and vtt_var.get():
+                    sub_copy["convert_vtt_to_srt"] = True
+                selected_subs.append(sub_copy)
         
         if not selected_subs:
             self.log("未选择任何轨道")

@@ -34,7 +34,9 @@
 - **功能**: 从视频容器 (MP4, MKV) 中提取字幕流。
 - **智能选择**: 自动识别默认音频轨道，并优先选中与音频语言一致的字幕轨道。
 - **自动过滤**: 默认排除 `hearing_impaired` (SDH) 和 `forced` 字幕。
-- **格式转换**: 自动将 `mov_text` (MP4) 和 `webvtt` 转换为 `.srt` 格式。
+- **格式转换**: 
+  - 自动将 `mov_text` (MP4) 转换为 `.srt` 格式。
+  - 对于检测到 `webvtt` 字幕轨道，可选择“转为SRT”。
 - **MKV 回落机制**: 当 FFmpeg 无法正确识别某些 MKV 文件的字幕流编码时，程序会自动回落调用 `mkvmerge` (解析编码) 和 `mkvextract` (执行提取) 以确保正常导出。
 - **环境要求**: 此功能需要系统环境变量 PATH 中包含 `ffmpeg` 和 `ffprobe`。如需使用 MKV 处理回落功能，还需额外包含并配置好 `mkvmerge` 与 `mkvextract`。
 

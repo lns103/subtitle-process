@@ -88,6 +88,9 @@ def write_ass(merged_entries, output_path, filename, **kwargs):
     author = kwargs.get("author", "lns103")
     comment = kwargs.get("comment", f"{today} made by my SRT merge script")
     
+    playresx = kwargs.get("playresx", 1920)
+    playresy = kwargs.get("playresy", 1080)
+    
     l1_style_name = kwargs.get("lang1_style_name", "Chinese")
     l1_style_def = kwargs.get("lang1_style_def", "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1")
     
@@ -100,8 +103,8 @@ def write_ass(merged_entries, output_path, filename, **kwargs):
         f"Author: {author}\n"
         f"Comment: {comment}\n"
         "ScriptType: v4.00+\n"
-        "PlayResX: 1920\n"
-        "PlayResY: 1080\n"
+        f"PlayResX: {playresx}\n"
+        f"PlayResY: {playresy}\n"
         "Timer: 100.0000\n"
         "WrapStyle: 0\n"
         "YCbCr Matrix: TV.709\n"

@@ -1,6 +1,7 @@
 import re
 import sys
 import os
+import subprocess
 
 MAX_SUBTITLE_LENGTH = 95  # 最大字幕长度
 
@@ -141,6 +142,19 @@ def process_subtitles_content(content, skip_merge=False):
 def process_single_file(file_path, skip_merge=False):
     """处理单个文件"""
     try:
+        original_path = file_path
+        is_vtt = file_path.lower().endswith('.vtt')
+        
+        if is_vtt:
+            srt_path = os.path.splitext(file_path)[0] + '.srt'
+            try:
+                subprocess.run(['ffmpeg', '-i', file_path, '-y', srt_path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                file_path = srt_path
+            except Exception as e:
+                print(f"VTT转换失败 {original_path}: {e}")
+                return False, f"VTT转换失败 {os.path.basename(original_path)}: {e}"
+                
         with open(file_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
         
@@ -159,8 +173,11 @@ def process_single_file(file_path, skip_merge=False):
         
         stats_msg = f" ({', '.join(stats_str_parts)})" if stats_str_parts else ""
         
-        print(f"处理完成: {file_path}{stats_msg}")
-        return True, f"处理完成: {os.path.basename(file_path)}{stats_msg}"
+        stats_msg = f" ({', '.join(stats_str_parts)})" if stats_str_parts else ""
+        
+        prefix = "VTT转SRT并清理完成" if is_vtt else "处理完成"
+        print(f"{prefix}: {file_path}{stats_msg}")
+        return True, f"{prefix}: {os.path.basename(file_path)}{stats_msg}"
     except Exception as e:
         print(f"处理失败 {file_path}: {e}")
         return False, f"处理失败 {os.path.basename(file_path)}: {e}"
@@ -169,7 +186,7 @@ def process_directory(directory, skip_merge=False):
     """处理目录下的所有 srt 文件"""
     results = []
     for filename in os.listdir(directory):
-        if filename.endswith(".srt"): 
+        if filename.lower().endswith(".srt") or filename.lower().endswith(".vtt"): 
             file_path = os.path.join(directory, filename)
             success, msg = process_single_file(file_path, skip_merge=skip_merge)
             results.append(msg)

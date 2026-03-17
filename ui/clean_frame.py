@@ -29,7 +29,7 @@ class CleanFrame(ctk.CTkFrame):
         grid_container.grid_rowconfigure(1, weight=1)
 
         # 按钮 (Row 0)
-        ctk.CTkButton(grid_container, text="选择文件/文件夹 (清理SRT)", font=self.app.font_normal, command=self.task_clean_srt).grid(row=0, column=0, padx=5, pady=(0, 10), sticky="ew")
+        ctk.CTkButton(grid_container, text="选择文件/文件夹 (清理SRT/VTT)", font=self.app.font_normal, command=self.task_clean_srt).grid(row=0, column=0, padx=5, pady=(0, 10), sticky="ew")
         ctk.CTkButton(grid_container, text="选择文件/文件夹 (中文标点清理)", font=self.app.font_normal, command=self.task_format_chs).grid(row=0, column=1, padx=5, pady=(0, 10), sticky="ew")
         ctk.CTkButton(grid_container, text="选择文件/文件夹 (缩放ASS描边)", font=self.app.font_normal, command=self.task_scale_ass).grid(row=0, column=2, padx=5, pady=(0, 10), sticky="ew")
 
@@ -45,7 +45,7 @@ class CleanFrame(ctk.CTkFrame):
         self.dnd_clean = ctk.CTkFrame(col0_frame, border_width=2, border_color="gray")
         self.dnd_clean.grid(row=1, column=0, sticky="nsew")
         
-        lbl_clean = ctk.CTkLabel(self.dnd_clean, text="拖拽到此\n仅清理 SRT\n(带移除内容统计)", font=self.app.font_normal, text_color="gray")
+        lbl_clean = ctk.CTkLabel(self.dnd_clean, text="拖拽到此\n清理 SRT/VTT\n(自动转换VTT)", font=self.app.font_normal, text_color="gray")
         lbl_clean.place(relx=0.5, rely=0.5, anchor="center")
 
         # 2. 格式化中文 DND (Row 1)

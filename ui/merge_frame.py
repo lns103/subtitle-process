@@ -87,17 +87,17 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
     def __init__(self, parent, config, save_callback):
         super().__init__(parent)
         self.title("双语合并样式自定义")
-        self.geometry("900x700")
+        self.geometry("900x780")
         self.config = config
         self.save_callback = save_callback
         
         self.font_normal = ctk.CTkFont(family="Microsoft YaHei", size=12)
         self.font_bold = ctk.CTkFont(family="Microsoft YaHei", size=12, weight="bold")
 
-        # Layout
+        # Layout: row0=resolution, row1=import area, row2=style panels (expand), row3=bottom
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         
         # Default config reference (to restore)
         self.default_l1_def = "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1"
@@ -118,6 +118,25 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         self.entry_playresy.pack(side="left", padx=5)
         self.var_playresy.trace_add("write", lambda *_: self._live_validate_int(self.entry_playresy, self.var_playresy))
 
+        # --- Import area ---
+        import_frame = ctk.CTkFrame(self, fg_color="transparent")
+        import_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=(5, 0))
+
+        import_top = ctk.CTkFrame(import_frame, fg_color="transparent")
+        import_top.pack(fill="x")
+        ctk.CTkLabel(import_top, text="粘贴完整 Style 行导入（按样式名称匹配）:", font=self.font_normal).pack(side="left")
+        ctk.CTkButton(import_top, text="导入样式", font=self.font_bold, width=90, command=self._import_styles).pack(side="right")
+
+        self.import_textbox = ctk.CTkTextbox(import_frame, height=55, font=self.font_normal)
+        self.import_textbox.pack(fill="x", pady=(3, 0))
+        self.import_textbox.insert("0.0", "Style: Name,Fontname,Fontsize,PrimaryColour,...")
+        self.import_textbox.configure(text_color="gray")
+        self.import_textbox.bind("<FocusIn>", self._import_tb_focus_in)
+        self.import_textbox.bind("<FocusOut>", self._import_tb_focus_out)
+
+        self.import_error_label = ctk.CTkLabel(import_frame, text="", font=self.font_normal, text_color="#E06666", anchor="w", height=20)
+        self.import_error_label.pack(fill="x")
+
         # Parameters definition
         self.ass_fields = [
             ("Fontname", "字体名称"),    ("Fontsize", "字体大小"),
@@ -135,9 +154,9 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
 
         # Scrollable frames for L1 and L2
         self.frame_l1 = ctk.CTkScrollableFrame(self)
-        self.frame_l1.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        self.frame_l1.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.frame_l2 = ctk.CTkScrollableFrame(self)
-        self.frame_l2.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
+        self.frame_l2.grid(row=2, column=1, sticky="nsew", padx=10, pady=(0, 10))
 
         # Vars and entry widgets
         self.vars_l1 = []
@@ -156,7 +175,7 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
         
         # Bottom frame
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        bottom_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
+        bottom_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
         
         ctk.CTkLabel(bottom_frame, text="Author:", font=self.font_normal).pack(side="left", padx=5)
         ctk.CTkEntry(bottom_frame, textvariable=self.var_author, font=self.font_normal, width=100).pack(side="left", padx=5)
@@ -222,7 +241,161 @@ class MergeStyleConfigDialog(ctk.CTkToplevel):
 
         self.var_playresx.set("1920")
         self.var_playresy.set("1080")
-                
+
+    # --- Import helpers ---
+    _STYLE_LINE_RE = re.compile(r'^Style:\s*([^,]+),(.+)$')
+
+    def _import_tb_focus_in(self, event):
+        """清除占位文字"""
+        content = self.import_textbox.get("0.0", "end").strip()
+        if content == "Style: Name,Fontname,Fontsize,PrimaryColour,...":
+            self.import_textbox.delete("0.0", "end")
+            self.import_textbox.configure(text_color=ctk.ThemeManager.theme["CTkTextbox"]["text_color"])
+
+    def _import_tb_focus_out(self, event):
+        """恢复占位文字"""
+        content = self.import_textbox.get("0.0", "end").strip()
+        if not content:
+            self.import_textbox.insert("0.0", "Style: Name,Fontname,Fontsize,PrimaryColour,...")
+            self.import_textbox.configure(text_color="gray")
+
+    def _set_import_error(self, msg):
+        """设置导入区域的错误/成功状态"""
+        if msg:
+            self.import_textbox.configure(border_color="#E06666")
+            self.import_error_label.configure(text=msg, text_color="#E06666")
+        else:
+            self.import_textbox.configure(border_color=ctk.ThemeManager.theme["CTkTextbox"]["border_color"])
+            self.import_error_label.configure(text="")
+
+    def _import_styles(self):
+        """解析文本框中的 Style 行, 按名称匹配填入对应面板。
+        支持可选的 Format: 行来确定字段映射顺序。
+        缺少或未知的字段会被跳过并给出提示。"""
+        raw = self.import_textbox.get("0.0", "end").strip()
+        if not raw or raw == "Style: Name,Fontname,Fontsize,PrimaryColour,...":
+            self._set_import_error("请先粘贴 Style 行")
+            return
+
+        l1_name = self.var_l1_name.get().strip()
+        l2_name = self.var_l2_name.get().strip()
+        # 已知字段名 -> 在 ass_fields 中的索引
+        known_fields = {f_key: i for i, (f_key, _) in enumerate(self.ass_fields)}
+        warnings = []
+        errors = []
+        matched = []
+
+        # 1. 解析 Format 行（如存在），确定字段映射
+        format_fields = None  # None = 使用默认顺序
+        lines = [l.strip() for l in raw.splitlines() if l.strip()]
+        style_lines = []
+
+        for line in lines:
+            if line.lower().startswith("format:"):
+                # 解析 Format 行
+                fmt_body = line.split(":", 1)[1]
+                fmt_names = [n.strip() for n in fmt_body.split(",")]
+                # 第一个字段固定为 Name，跳过
+                if fmt_names and fmt_names[0].lower() == "name":
+                    fmt_names = fmt_names[1:]
+                # 建立映射：位置 -> ass_fields 索引，跳过未知字段
+                format_fields = []
+                unknown = []
+                for fn in fmt_names:
+                    if fn in known_fields:
+                        format_fields.append(known_fields[fn])
+                    else:
+                        format_fields.append(None)  # 未知字段，跳过
+                        unknown.append(fn)
+                if unknown:
+                    warnings.append(f"忽略未知字段: {', '.join(unknown)}")
+            elif self._STYLE_LINE_RE.match(line):
+                style_lines.append(line)
+            else:
+                errors.append(f"格式不合法: {line[:50]}")
+
+        if not style_lines:
+            self._set_import_error("未找到有效的 Style 行")
+            return
+
+        # 2. 逐行处理 Style
+        for line in style_lines:
+            m = self._STYLE_LINE_RE.match(line)
+            name = m.group(1).strip()
+            params = [p.strip() for p in m.group(2).split(",")]
+
+            # 确定目标面板
+            if name == l1_name:
+                target_vars = self.vars_l1
+                panel_label = f"Lang1 ({name})"
+            elif name == l2_name:
+                target_vars = self.vars_l2
+                panel_label = f"Lang2 ({name})"
+            else:
+                errors.append(f"名称不匹配: \"{name}\" (当前: \"{l1_name}\" / \"{l2_name}\")")
+                continue
+
+            # 按字段映射写入
+            filled = []
+            skipped_invalid = []
+
+            if format_fields is not None:
+                # 有 Format 行，按映射写入
+                for pos, param_val in enumerate(params):
+                    if pos >= len(format_fields):
+                        break
+                    field_idx = format_fields[pos]
+                    if field_idx is None:
+                        continue  # 未知字段，跳过
+                    f_key = self.ass_fields[field_idx][0]
+                    validator = _FIELD_VALIDATORS.get(f_key, _v_str)
+                    if validator(param_val):
+                        target_vars[field_idx].set(param_val)
+                        filled.append(f_key)
+                    else:
+                        skipped_invalid.append(f_key)
+
+                # 检查哪些已知字段没有被覆盖
+                covered = {format_fields[p] for p in range(min(len(params), len(format_fields))) if format_fields[p] is not None}
+                missing = [self.ass_fields[i][0] for i in range(len(self.ass_fields)) if i not in covered]
+                if missing:
+                    warnings.append(f"\"{name}\" 保留原值: {', '.join(missing)}")
+            else:
+                # 无 Format 行，按默认顺序填入（允许参数不足）
+                for i, param_val in enumerate(params):
+                    if i >= len(self.ass_fields):
+                        break
+                    f_key = self.ass_fields[i][0]
+                    validator = _FIELD_VALIDATORS.get(f_key, _v_str)
+                    if validator(param_val):
+                        target_vars[i].set(param_val)
+                        filled.append(f_key)
+                    else:
+                        skipped_invalid.append(f_key)
+
+                if len(params) < len(self.ass_fields):
+                    missing = [self.ass_fields[i][0] for i in range(len(params), len(self.ass_fields))]
+                    warnings.append(f"\"{name}\" 保留原值: {', '.join(missing)}")
+
+            if skipped_invalid:
+                warnings.append(f"\"{name}\" 跳过不合法: {', '.join(skipped_invalid)}")
+
+            matched.append(panel_label)
+
+        # 3. 报告结果
+        if errors:
+            all_msgs = errors + warnings
+            self._set_import_error("; ".join(all_msgs))
+        elif warnings:
+            # 部分成功 — 用橙色提示
+            self.import_textbox.configure(border_color="#E8A830")
+            self.import_error_label.configure(text=f"已导入 {', '.join(matched)}; {'; '.join(warnings)}", text_color="#E8A830")
+        else:
+            self._set_import_error("")
+            self.import_textbox.delete("0.0", "end")
+            self.import_textbox.insert("0.0", "Style: Name,Fontname,Fontsize,PrimaryColour,...")
+            self.import_textbox.configure(text_color="gray")
+
     @staticmethod
     def _mark_entry(entry, valid):
         """标记输入框: 无效时红色边框, 有效时恢复默认"""

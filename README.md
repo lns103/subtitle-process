@@ -62,7 +62,7 @@ python app_ui.py
 ### 打包 (PyInstaller)
 如果需要打包为独立 exe 文件，请运行以下命令：
 ```bash
-pyinstaller --noconsole --onefile --collect-all customtkinter app_ui.py
+pyinstaller --noconsole --onefile app_ui.py
 ```
 
 ## 使用说明

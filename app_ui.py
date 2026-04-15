@@ -54,6 +54,7 @@ from ui.merge_frame import MergeFrame
 from ui.rename_frame import RenameFrame
 from ui.extract_frame import ExtractFrame
 from ui.fps_frame import FpsFrame
+from ui.shift_frame import ShiftFrame
 
 class App(CTk):
     CONFIG_FILE = "config.json"
@@ -107,7 +108,7 @@ class App(CTk):
         # 左侧导航栏
         self.sidebar_frame = ctk.CTkFrame(self, width=140, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(7, weight=1)
+        self.sidebar_frame.grid_rowconfigure(8, weight=1)
 
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="字幕工具箱", font=self.font_large_bold)
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
@@ -127,12 +128,15 @@ class App(CTk):
         self.sidebar_button_fps = ctk.CTkButton(self.sidebar_frame, text="帧率转换", font=self.font_normal, command=lambda: self.select_frame("fps"))
         self.sidebar_button_fps.grid(row=6, column=0, padx=20, pady=10)
 
+        self.sidebar_button_shift = ctk.CTkButton(self.sidebar_frame, text="时间轴平移", font=self.font_normal, command=lambda: self.select_frame("shift"))
+        self.sidebar_button_shift.grid(row=7, column=0, padx=20, pady=10)
+
         self.appearance_mode_label = ctk.CTkLabel(self.sidebar_frame, text="外观模式:", font=self.font_normal, anchor="w")
-        self.appearance_mode_label.grid(row=8, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=9, column=0, padx=20, pady=(10, 0))
         self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar_frame, values=["System", "Light", "Dark"],
                                                                        font=self.font_normal,
                                                                        command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=9, column=0, padx=20, pady=(10, 20))
+        self.appearance_mode_optionemenu.grid(row=10, column=0, padx=20, pady=(10, 20))
         
         # 主功能区
         self.frames = {}
@@ -141,6 +145,7 @@ class App(CTk):
         self.frames["rename"] = RenameFrame(self, app=self, corner_radius=0, fg_color="transparent")
         self.frames["extract"] = ExtractFrame(self, app=self, corner_radius=0, fg_color="transparent")
         self.frames["fps"] = FpsFrame(self, app=self, corner_radius=0, fg_color="transparent")
+        self.frames["shift"] = ShiftFrame(self, app=self, corner_radius=0, fg_color="transparent")
         
         # 底部日志区
         self.log_frame = ctk.CTkFrame(self, corner_radius=0, height=100)

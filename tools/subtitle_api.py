@@ -11,6 +11,7 @@ try:
 
     from . import subtitle_extractor
     from . import fps_converter
+    from . import time_shifter
 except ImportError:
     import srt_process
     import merge_srt
@@ -20,6 +21,7 @@ except ImportError:
 
     import subtitle_extractor
     import fps_converter
+    import time_shifter
 
 class SubtitleTool:
     """
@@ -221,4 +223,38 @@ class SubtitleTool:
                         
         for f in files:
             success, msg = fps_converter.process_file(f, src_fps, dst_fps)
+            yield msg
+
+    @staticmethod
+    def shift_time(paths, offset):
+        """
+        平移字幕时间轴
+        :param paths: 文件路径列表或目录路径
+        :param offset: 时间偏移量(秒)
+        :return: Generator yielding result messages
+        """
+        if isinstance(paths, str):
+            if os.path.isdir(paths):
+                paths = [paths]
+            else:
+                paths = [paths]
+                
+        dirs = set()
+        files = []
+        for p in paths:
+            if os.path.isdir(p):
+                dirs.add(p)
+            elif os.path.isfile(p):
+                files.append(p)
+                
+        for d in dirs:
+            for root, _, filenames in os.walk(d):
+                for f in filenames:
+                    if f.lower().endswith(('.srt', '.ass')):
+                        full_path = os.path.join(root, f)
+                        success, msg = time_shifter.process_file(full_path, offset)
+                        yield msg
+                        
+        for f in files:
+            success, msg = time_shifter.process_file(f, offset)
             yield msg

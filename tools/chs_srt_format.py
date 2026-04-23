@@ -19,6 +19,10 @@ def format_zh_text(zh_text: str) -> str:
     zh_text = zh_text.replace("”", "\"")
     zh_text = zh_text.replace("‘", "\'")
     zh_text = zh_text.replace("’", "\'")
+    zh_text = zh_text.replace("——", " ")
+    zh_text = zh_text.replace("「", "\"")
+    zh_text = zh_text.replace("」", "\"")
+    zh_text = zh_text.replace("- ", "-")
 
     # 去掉标点前的多余空格
     zh_text = re.sub(r"\s+\"", "\"", zh_text)

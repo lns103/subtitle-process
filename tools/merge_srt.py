@@ -3,6 +3,11 @@ import re
 import sys
 from datetime import date
 
+try:
+    from tools.chs_srt_format import format_zh_text
+except ImportError:
+    from chs_srt_format import format_zh_text
+
 def convert_time(srt_timestamp):
     """
     将 srt 格式时间 "00:00:02,326" 转换为 ASS 格式时间 "0:00:02.32"
@@ -60,19 +65,11 @@ def merge_srt(eng_entries, zh_entries, **kwargs):
         # 此处可以对比时间是否一致，不一致可以抛出异常或警告
         if eng_start != zh_start or eng_end != zh_end:
             print(f"警告：时间不匹配！英文({eng_start} --> {eng_end}) vs 中文({zh_start} --> {zh_end})")
-        # 去除中文里的标点符号
-        zh_text = zh_text.replace("，"," ").replace("、"," ").replace("——"," ").replace("。"," ").replace("！","! ").replace("？","? ")
-        zh_text = zh_text.replace("“","\"").replace("”","\"").replace("‘","\'").replace("’","\'").replace("「","\"").replace("」","\"")
-        zh_text = zh_text.replace("- ","-").replace("："," ")
-        zh_text = re.sub(r"\s+\"","\"",zh_text)
-        zh_text = re.sub(r"\s+\'","\'",zh_text)
-        # zh_text = re.sub(r"\s+」","」",zh_text)
-        zh_text = re.sub(r"\s+》","》",zh_text).strip()
+        # 使用合并后的通用文本处理方法
+        zh_text = format_zh_text(zh_text)
         # zh_text = re.sub(r"\s+{\\i0}","{\\i0}",zh_text)
         
         merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
-        # # 替换 <i> 和 </i> 为 ass 正确格式
-        # merged_text = merged_text.replace("<i>", "{\\i1}").replace("</i>", "{\\i0}")
         # 删除 <i> 和 </i>
         merged_text = merged_text.replace("<i>", "").replace("</i>", "")
         

@@ -53,27 +53,43 @@ def parse_srt(srt_path):
 
 def merge_srt(eng_entries, zh_entries, **kwargs):
     """
-    合并英文和中文字幕条目，假定它们的顺序和时间完全对应
+    合并英文和中文字幕条目。
+    通过精确比对时间戳，如果中文字幕多出部分（时间戳在英文中不存在），输出到屏幕顶部。
     """
-    if len(eng_entries) != len(zh_entries):
-        raise ValueError("英文和中文字幕的条目数量不匹配！")
-    
     l2_style_name = kwargs.get("lang2_style_name", "Original")
 
+    eng_map = {(start, end): text for start, end, text in eng_entries}
+    zh_map = {(start, end): text for start, end, text in zh_entries}
+
     merged_entries = []
-    for (eng_start, eng_end, eng_text), (zh_start, zh_end, zh_text) in zip(eng_entries, zh_entries):
-        # 此处可以对比时间是否一致，不一致可以抛出异常或警告
-        if eng_start != zh_start or eng_end != zh_end:
-            print(f"警告：时间不匹配！英文({eng_start} --> {eng_end}) vs 中文({zh_start} --> {zh_end})")
-        # 使用合并后的通用文本处理方法
+
+    # 1. 检查英文是否在中文中都有
+    for eng_start, eng_end, eng_text in eng_entries:
+        if (eng_start, eng_end) not in zh_map:
+            print(f"警告：中文里缺少英文字幕的时间戳！英文({eng_start} --> {eng_end})")
+            eng_text_clean = eng_text.replace("<i>", "").replace("</i>", "")
+            merged_entries.append((eng_start, eng_end, eng_text_clean))
+
+    # 2. 遍历中文字幕，进行合并或置顶
+    for zh_start, zh_end, zh_text in zh_entries:
         zh_text = format_zh_text(zh_text)
-        # zh_text = re.sub(r"\s+{\\i0}","{\\i0}",zh_text)
-        
-        merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
-        # 删除 <i> 和 </i>
-        merged_text = merged_text.replace("<i>", "").replace("</i>", "")
-        
-        merged_entries.append((eng_start, eng_end, merged_text))
+        if (zh_start, zh_end) in eng_map:
+            eng_text = eng_map[(zh_start, zh_end)]
+            merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
+            merged_text = merged_text.replace("<i>", "").replace("</i>", "")
+            merged_entries.append((zh_start, zh_end, merged_text))
+        else:
+            # 中文里多出的字幕，输出到屏幕顶部
+            merged_text = f"{{\\an8}}{zh_text}"
+            merged_entries.append((zh_start, zh_end, merged_text))
+
+    # 按时间戳排序
+    def get_ms(t_str):
+        h, m, s_ms = t_str.split(':')
+        s, ms = s_ms.split('.')
+        return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(ms) * 10
+
+    merged_entries.sort(key=lambda x: get_ms(x[0]))
     return merged_entries
 
 def write_ass(merged_entries, output_path, filename, **kwargs):

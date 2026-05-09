@@ -54,41 +54,204 @@ def parse_srt(srt_path):
 def merge_srt(eng_entries, zh_entries, **kwargs):
     """
     合并英文和中文字幕条目。
-    通过精确比对时间戳，如果中文字幕多出部分（时间戳在英文中不存在），输出到屏幕顶部。
+    首先尝试精确匹配，如果中文中缺失了任何一个英文的时间戳，则降级使用模糊匹配规则。
     """
     l2_style_name = kwargs.get("lang2_style_name", "Original")
 
-    eng_map = {(start, end): text for start, end, text in eng_entries}
-    zh_map = {(start, end): text for start, end, text in zh_entries}
-
-    merged_entries = []
-
-    # 1. 检查英文是否在中文中都有
-    for eng_start, eng_end, eng_text in eng_entries:
-        if (eng_start, eng_end) not in zh_map:
-            print(f"警告：中文里缺少英文字幕的时间戳！英文({eng_start} --> {eng_end})")
-            eng_text_clean = eng_text.replace("<i>", "").replace("</i>", "")
-            merged_entries.append((eng_start, eng_end, eng_text_clean))
-
-    # 2. 遍历中文字幕，进行合并或置顶
-    for zh_start, zh_end, zh_text in zh_entries:
-        zh_text = format_zh_text(zh_text)
-        if (zh_start, zh_end) in eng_map:
-            eng_text = eng_map[(zh_start, zh_end)]
-            merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
-            merged_text = merged_text.replace("<i>", "").replace("</i>", "")
-            merged_entries.append((zh_start, zh_end, merged_text))
-        else:
-            # 中文里多出的字幕，输出到屏幕顶部
-            merged_text = f"{{\\an8}}{zh_text}"
-            merged_entries.append((zh_start, zh_end, merged_text))
-
-    # 按时间戳排序
     def get_ms(t_str):
         h, m, s_ms = t_str.split(':')
         s, ms = s_ms.split('.')
         return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(ms) * 10
 
+    # 1. 检查是否可以精确匹配（所有英文时间戳在中文里都能找到）
+    eng_map = {(start, end): text for start, end, text in eng_entries}
+    zh_map = {(start, end): text for start, end, text in zh_entries}
+    warnings_list = kwargs.get("warnings_list", None)
+    
+    exact_match_success = True
+    for eng_start, eng_end, _ in eng_entries:
+        if (eng_start, eng_end) not in zh_map:
+            exact_match_success = False
+            break
+
+    merged_entries = []
+
+    if exact_match_success:
+        # 精确匹配成功
+        for zh_start, zh_end, zh_text in zh_entries:
+            zh_text = format_zh_text(zh_text)
+            if (zh_start, zh_end) in eng_map:
+                eng_text = eng_map[(zh_start, zh_end)]
+                merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
+                merged_text = merged_text.replace("<i>", "").replace("</i>", "")
+                merged_entries.append((zh_start, zh_end, merged_text))
+            else:
+                # 中文多出的字幕
+                merged_text = f"{{\\an8}}{zh_text}"
+                merged_entries.append((zh_start, zh_end, merged_text))
+        
+        merged_entries.sort(key=lambda x: get_ms(x[0]))
+        return merged_entries
+
+    # ==========================
+    # 2. 精确匹配失败，启用模糊匹配规则
+    # ==========================
+    eng_nodes = []
+    for i, (start, end, text) in enumerate(eng_entries):
+        eng_nodes.append({
+            'idx': i, 'start_ms': get_ms(start), 'end_ms': get_ms(end), 
+            'start_str': start, 'end_str': end, 'text': text
+        })
+        
+    zh_nodes = []
+    for j, (start, end, text) in enumerate(zh_entries):
+        zh_nodes.append({
+            'idx': j, 'start_ms': get_ms(start), 'end_ms': get_ms(end),
+            'start_str': start, 'end_str': end, 'text': text
+        })
+
+    # 构建匹配关系（二分图）
+    eng_adj = {i: [] for i in range(len(eng_nodes))}
+    zh_adj = {j: [] for j in range(len(zh_nodes))}
+    
+    for i, e in enumerate(eng_nodes):
+        for j, z in enumerate(zh_nodes):
+            # 规则1：起止时间戳在前后0.5s内
+            c1 = abs(e['start_ms'] - z['start_ms']) <= 500 and abs(e['end_ms'] - z['end_ms']) <= 500
+            # 规则2：翻译完全包含在原始时间戳内
+            c2 = z['start_ms'] >= e['start_ms'] and z['end_ms'] <= e['end_ms']
+            # 规则3：一条翻译时间戳包含多个原始（原始被包含在翻译中）
+            c3 = e['start_ms'] >= z['start_ms'] and e['end_ms'] <= z['end_ms']
+            # 规则4：某条字幕与另一边的某条字幕时间重叠大于50%
+            overlap_start = max(e['start_ms'], z['start_ms'])
+            overlap_end = min(e['end_ms'], z['end_ms'])
+            overlap_dur = max(0, overlap_end - overlap_start)
+            e_dur = e['end_ms'] - e['start_ms']
+            z_dur = z['end_ms'] - z['start_ms']
+            c4 = (e_dur > 0 and overlap_dur / e_dur > 0.5) or (z_dur > 0 and overlap_dur / z_dur > 0.5)
+            
+            if c1 or c2 or c3 or c4:
+                eng_adj[i].append(j)
+                zh_adj[j].append(i)
+
+    # 规则5：孤立节点打捞（处理跨界字幕）。如果某条字幕在上述4条规则后依然孤立，
+    # 寻找与其重叠最多的对面字幕，并只连接重叠最多的一条（防止合并块过长）。
+    for i in range(len(eng_nodes)):
+        if not eng_adj[i]:
+            e = eng_nodes[i]
+            best_j = -1
+            max_overlap = 0
+            for j in range(len(zh_nodes)):
+                z = zh_nodes[j]
+                overlap_start = max(e['start_ms'], z['start_ms'])
+                overlap_end = min(e['end_ms'], z['end_ms'])
+                overlap_dur = max(0, overlap_end - overlap_start)
+                if overlap_dur > max_overlap:
+                    max_overlap = overlap_dur
+                    best_j = j
+            
+            e_dur = e['end_ms'] - e['start_ms']
+            if best_j != -1 and (max_overlap > 0.3 * e_dur or max_overlap > 500):
+                eng_adj[i].append(best_j)
+                zh_adj[best_j].append(i)
+
+    for j in range(len(zh_nodes)):
+        if not zh_adj[j]:
+            z = zh_nodes[j]
+            best_i = -1
+            max_overlap = 0
+            for i in range(len(eng_nodes)):
+                e = eng_nodes[i]
+                overlap_start = max(e['start_ms'], z['start_ms'])
+                overlap_end = min(e['end_ms'], z['end_ms'])
+                overlap_dur = max(0, overlap_end - overlap_start)
+                if overlap_dur > max_overlap:
+                    max_overlap = overlap_dur
+                    best_i = i
+                    
+            z_dur = z['end_ms'] - z['start_ms']
+            if best_i != -1 and (max_overlap > 0.3 * z_dur or max_overlap > 500):
+                eng_adj[best_i].append(j)
+                zh_adj[j].append(best_i)
+
+    # 寻找连通分量，合并匹配项
+    visited_eng = set()
+    visited_zh = set()
+    components = []
+
+    for i in range(len(eng_nodes)):
+        if i in visited_eng:
+            continue
+        
+        comp_eng = set()
+        comp_zh = set()
+        q_eng = [i]
+        q_zh = []
+        
+        while q_eng or q_zh:
+            while q_eng:
+                e_idx = q_eng.pop(0)
+                if e_idx in comp_eng: continue
+                comp_eng.add(e_idx)
+                visited_eng.add(e_idx)
+                for z_idx in eng_adj[e_idx]:
+                    if z_idx not in comp_zh:
+                        q_zh.append(z_idx)
+            while q_zh:
+                z_idx = q_zh.pop(0)
+                if z_idx in comp_zh: continue
+                comp_zh.add(z_idx)
+                visited_zh.add(z_idx)
+                for e_idx in zh_adj[z_idx]:
+                    if e_idx not in comp_eng:
+                        q_eng.append(e_idx)
+                        
+        components.append((comp_eng, comp_zh))
+
+    # 找出孤立的中文字幕
+    for j in range(len(zh_nodes)):
+        if j not in visited_zh:
+            components.append((set(), {j}))
+
+    # 生成最终合并结果
+    for comp_eng, comp_zh in components:
+        e_list = sorted(list(comp_eng))
+        z_list = sorted(list(comp_zh))
+        
+        if len(e_list) == 0 and len(z_list) > 0:
+            # 孤立无法匹配的中文行 -> 输出到屏幕顶部
+            for z_idx in z_list:
+                z = zh_nodes[z_idx]
+                zh_text = format_zh_text(z['text'])
+                merged_entries.append((z['start_str'], z['end_str'], f"{{\\an8}}{zh_text}"))
+                
+        elif len(z_list) == 0 and len(e_list) > 0:
+            # 未匹配的原始语言 -> 正常输出并警告
+            for e_idx in e_list:
+                e = eng_nodes[e_idx]
+                warn_msg = f"警告：未找到匹配的翻译字幕！原始字幕({e['start_str']} --> {e['end_str']})"
+                print(warn_msg)
+                if warnings_list is not None:
+                    warnings_list.append(warn_msg)
+                eng_clean = e['text'].replace("<i>", "").replace("</i>", "")
+                merged_entries.append((e['start_str'], e['end_str'], f"{{\\r{l2_style_name}}}{eng_clean}"))
+                
+        else:
+            # 成功匹配的组（可能是1对1，1对多，多对1）
+            # 时间戳使用原始时间戳（起点最早，终点最晚）
+            start_str = eng_nodes[e_list[0]]['start_str']
+            end_str = eng_nodes[e_list[-1]]['end_str']
+            
+            zh_texts = [format_zh_text(zh_nodes[z_idx]['text']) for z_idx in z_list]
+            zh_merged = " ".join(zh_texts)
+            
+            eng_texts = [eng_nodes[e_idx]['text'].replace("<i>", "").replace("</i>", "") for e_idx in e_list]
+            eng_merged = " ".join(eng_texts)
+            
+            merged_text = f"{zh_merged}\\N{{\\r{l2_style_name}}}{eng_merged}"
+            merged_entries.append((start_str, end_str, merged_text))
+
+    # 按时间戳排序
     merged_entries.sort(key=lambda x: get_ms(x[0]))
     return merged_entries
 
@@ -145,10 +308,19 @@ def merge_and_save(eng_path, zh_path, output_path, filename, **kwargs):
     try:
         eng_entries = parse_srt(eng_path)
         zh_entries = parse_srt(zh_path)
+        
+        warnings_list = []
+        kwargs["warnings_list"] = warnings_list
         merged_entries = merge_srt(eng_entries, zh_entries, **kwargs)
+        
         write_ass(merged_entries, output_path, filename, **kwargs)
         print(f"生成文件: {output_path}")
-        return True, f"生成文件: {os.path.basename(output_path)}"
+        
+        msg = f"生成文件: {os.path.basename(output_path)}"
+        if warnings_list:
+            msg += "\n" + "\n".join(warnings_list)
+            
+        return True, msg
     except Exception as e:
         print(f"处理 {filename} 时出错: {e}")
         return False, f"处理失败 {filename}: {e}"

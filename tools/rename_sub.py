@@ -11,16 +11,20 @@ def get_files_with_extensions(path, extensions):
             file_list.append(os.path.basename(file))
     return file_list
 
-# 识别并提取文件名中的S\d\dE\d\d
+# 识别并提取文件名中的SxxExx, 01x01, 或 TxxCxx
 def extract_season_episode(filename):
-    pattern = r"(?i)S(\d+)E(\d+)"
-    match = re.search(pattern, filename)
-    if match:
-        season = match.group(1)
-        episode = match.group(2)
-        return season, episode
-    else:
-        return None
+    patterns = [
+        r"(?i)S(\d+)E(\d+)",
+        r"(?i)(\d+)x(\d+)",
+        r"(?i)T(\d+)C(\d+)"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, filename)
+        if match:
+            season = match.group(1)
+            episode = match.group(2)
+            return season, episode
+    return None
 
 def case_insensitive_replace(s, old, new):
     pattern = re.compile(old, re.IGNORECASE)

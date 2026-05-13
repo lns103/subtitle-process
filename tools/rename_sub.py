@@ -31,20 +31,25 @@ def rename_subtitle_files(video_file_list, subtitle_file_list, path):
     number = 0
     for video_file in video_file_list:
         video_filename = os.path.basename(video_file)
-        try:
-            video_season, video_episode = extract_season_episode(video_filename)
-            for subtitle_file in subtitle_file_list:
-                subtitle_filename = os.path.basename(subtitle_file)
-                subtitle_season, subtitle_episode = extract_season_episode(subtitle_filename)
-                if int(video_season) == int(subtitle_season) and int(video_episode) == int(subtitle_episode):
-                    # new_subtitle_filename = os.path.splitext(video_filename)[0] + os.path.splitext(subtitle_filename)[1].replace('ssa', 'ass')
-                    new_subtitle_filename = os.path.splitext(video_filename)[0] + case_insensitive_replace(os.path.splitext(subtitle_filename)[1], 'ssa', 'ass')
-                    os.rename(path + '/' + subtitle_file, path + '/' + new_subtitle_filename)
-                    if subtitle_filename != new_subtitle_filename:
-                        number = number + 1
-                        print("\033[0m" + str(number) + "." + subtitle_filename + "\n  \033[1m →" + new_subtitle_filename + "\033[0m")
-        finally:
-            pass
+        v_se = extract_season_episode(video_filename)
+        if not v_se:
+            continue
+        video_season, video_episode = v_se
+        
+        for subtitle_file in subtitle_file_list:
+            subtitle_filename = os.path.basename(subtitle_file)
+            s_se = extract_season_episode(subtitle_filename)
+            if not s_se:
+                continue
+            subtitle_season, subtitle_episode = s_se
+            
+            if int(video_season) == int(subtitle_season) and int(video_episode) == int(subtitle_episode):
+                # new_subtitle_filename = os.path.splitext(video_filename)[0] + os.path.splitext(subtitle_filename)[1].replace('ssa', 'ass')
+                new_subtitle_filename = os.path.splitext(video_filename)[0] + case_insensitive_replace(os.path.splitext(subtitle_filename)[1], 'ssa', 'ass')
+                os.rename(path + '/' + subtitle_file, path + '/' + new_subtitle_filename)
+                if subtitle_filename != new_subtitle_filename:
+                    number = number + 1
+                    print("\033[0m" + str(number) + "." + subtitle_filename + "\n  \033[1m →" + new_subtitle_filename + "\033[0m")
     return number
 
 def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths):

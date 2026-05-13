@@ -31,7 +31,7 @@ def case_insensitive_replace(s, old, new):
     return pattern.sub(new, s)
 
 # 将season和episode匹配的sub重命名为video文件名
-def rename_subtitle_files(video_file_list, subtitle_file_list, path):
+def rename_subtitle_files(video_file_list, subtitle_file_list, path, suffix=""):
     number = 0
     for video_file in video_file_list:
         video_filename = os.path.basename(video_file)
@@ -49,14 +49,14 @@ def rename_subtitle_files(video_file_list, subtitle_file_list, path):
             
             if int(video_season) == int(subtitle_season) and int(video_episode) == int(subtitle_episode):
                 # new_subtitle_filename = os.path.splitext(video_filename)[0] + os.path.splitext(subtitle_filename)[1].replace('ssa', 'ass')
-                new_subtitle_filename = os.path.splitext(video_filename)[0] + case_insensitive_replace(os.path.splitext(subtitle_filename)[1], 'ssa', 'ass')
+                new_subtitle_filename = os.path.splitext(video_filename)[0] + suffix + case_insensitive_replace(os.path.splitext(subtitle_filename)[1], 'ssa', 'ass')
                 os.rename(path + '/' + subtitle_file, path + '/' + new_subtitle_filename)
                 if subtitle_filename != new_subtitle_filename:
                     number = number + 1
                     print("\033[0m" + str(number) + "." + subtitle_filename + "\n  \033[1m →" + new_subtitle_filename + "\033[0m")
     return number
 
-def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths):
+def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths, suffix=""):
     count = 0
     # 建立视频文件字典 SxxExx -> full_path
     video_map = {}
@@ -83,7 +83,7 @@ def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths):
             # case insensitive replacement for 'ssa' -> 'ass'
             new_ext = case_insensitive_replace(s_ext, 'ssa', 'ass')
             
-            new_sub_name = os.path.splitext(v_name)[0] + new_ext
+            new_sub_name = os.path.splitext(v_name)[0] + suffix + new_ext
             new_sub_full_path = os.path.join(s_dir, new_sub_name)
             
             if s_path != new_sub_full_path:
@@ -103,19 +103,19 @@ def rename_subtitle_files_by_paths(video_full_paths, subtitle_full_paths):
 video_extensions = [".mp4", ".mkv"]
 subtitle_extensions = [".srt", ".ass", ".ssa", ".sup"]
 
-def process_directory(folder):
+def process_directory(folder, suffix=""):
     """批量重命名目录下的字幕文件"""
     video_file_list = get_files_with_extensions(folder, video_extensions)
     subtitle_file_list = get_files_with_extensions(folder, subtitle_extensions)
     
     # 重命名匹配的字幕文件
-    count = rename_subtitle_files(video_file_list, subtitle_file_list, folder)
+    count = rename_subtitle_files(video_file_list, subtitle_file_list, folder, suffix)
     
     msg = f"Find {len(video_file_list)} videos and {len(subtitle_file_list)} subs, rename {count} subs."
     print(msg)
     return count, msg
 
-def process_files(file_list):
+def process_files(file_list, suffix=""):
     """
     处理给定的文件列表中的字幕重命名
     :param file_list: 文件路径列表
@@ -130,7 +130,7 @@ def process_files(file_list):
         elif ext in subtitle_extensions:
             subtitle_files.append(f)
             
-    count = rename_subtitle_files_by_paths(video_files, subtitle_files)
+    count = rename_subtitle_files_by_paths(video_files, subtitle_files, suffix)
     msg = f"In list: found {len(video_files)} videos and {len(subtitle_files)} subs, rename {count} subs."
     return count, msg
 

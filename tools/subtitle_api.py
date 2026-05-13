@@ -114,10 +114,11 @@ class SubtitleTool:
                 yield msg
 
     @staticmethod
-    def rename_subtitles(paths):
+    def rename_subtitles(paths, suffix=""):
         """
         重命名字幕文件以匹配视频文件
         :param paths: 文件夹路径或文件路径列表
+        :param suffix: 附加到文件名的自定义后缀
         :return: Generator yielding result messages
         """
         if isinstance(paths, str):
@@ -137,12 +138,12 @@ class SubtitleTool:
                 
         # 处理目录
         for d in dirs:
-            count, msg = rename_sub.process_directory(d)
+            count, msg = rename_sub.process_directory(d, suffix)
             yield msg
             
         # 处理文件列表
         if files:
-            count, msg = rename_sub.process_files(files)
+            count, msg = rename_sub.process_files(files, suffix)
             yield msg
 
     @staticmethod

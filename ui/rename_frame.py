@@ -21,9 +21,18 @@ class RenameFrame(ctk.CTkFrame):
         
         ctk.CTkButton(self, text="选择文件夹重命名", font=self.app.font_normal, command=self.task_rename_subs).pack(pady=20, anchor="w")
 
+        # 添加输入框 (拖动区域上方靠右)
+        suffix_frame = ctk.CTkFrame(self, fg_color="transparent")
+        suffix_frame.pack(fill="x", padx=0, pady=(0, 5))
+        
+        self.suffix_entry = ctk.CTkEntry(suffix_frame, placeholder_text="自定义后缀 (如 .zh)", font=self.app.font_normal, width=150)
+        self.suffix_entry.pack(side="right")
+        
+        ctk.CTkLabel(suffix_frame, text="重命名后缀:", font=self.app.font_normal).pack(side="right", padx=10)
+
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray")
-        dnd_frame.pack(pady=20, fill="both", expand=True)
+        dnd_frame.pack(pady=10, fill="both", expand=True)
         dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.app.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -34,19 +43,21 @@ class RenameFrame(ctk.CTkFrame):
     def on_drop_rename(self, event):
         files = self.app.parse_drop_files(event.data)
         if not files: return
-        self.app.run_task(lambda: self.task_rename_subs_run(files))
+        suffix = self.suffix_entry.get()
+        self.app.run_task(lambda: self.task_rename_subs_run(files, suffix))
 
     def task_rename_subs(self):
         paths = self.app.get_paths("folder")
         if not paths: return
-        self.app.run_task(lambda: self.task_rename_subs_run(paths))
+        suffix = self.suffix_entry.get()
+        self.app.run_task(lambda: self.task_rename_subs_run(paths, suffix))
 
-    def task_rename_subs_run(self, paths):
+    def task_rename_subs_run(self, paths, suffix=""):
         if SubtitleTool is None:
             self.app.log("Error: SubtitleTool not loaded.")
             return
 
         self.app.log(f"开始重命名字幕: {len(paths)} 个项目")
-        for msg in SubtitleTool.rename_subtitles(paths):
+        for msg in SubtitleTool.rename_subtitles(paths, suffix):
             self.app.log(msg)
         self.app.log("任务结束")

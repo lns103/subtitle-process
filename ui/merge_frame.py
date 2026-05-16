@@ -473,7 +473,7 @@ class MergeFrame(ctk.CTkFrame):
         
         # 顶部布局分两列
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        top_frame.pack(fill="x", pady=10)
+        top_frame.pack(fill="x", padx=5, pady=(10, 10))
         
         left_col = ctk.CTkFrame(top_frame, fg_color="transparent")
         left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
@@ -482,12 +482,12 @@ class MergeFrame(ctk.CTkFrame):
         right_col.pack(side="right", fill="both", expand=True)
 
         label = ctk.CTkLabel(left_col, text="合并双语字幕 (SRT -> ASS)", font=self.app.font_title)
-        label.pack(pady=10, anchor="w")
+        label.pack(pady=(0, 10), anchor="w")
         
         info = ctk.CTkLabel(left_col, text="说明: 要求文件夹内同时存在原语言和翻译语言文件。\n默认为 .srt 和 .zh.srt。\n也可直接拖拽配对的源语言 .srt 文件。", font=self.app.font_normal, justify="left")
-        info.pack(pady=5, anchor="w")
+        info.pack(pady=(0, 10), anchor="w")
 
-        ctk.CTkButton(left_col, text="选择文件夹合并", font=self.app.font_normal, command=self.task_merge_bilingual).pack(pady=20, anchor="w")
+        ctk.CTkButton(left_col, text="选择文件夹合并", font=self.app.font_normal, command=self.task_merge_bilingual).pack(pady=(10, 10), anchor="w")
         
         # 右侧配置项
         def add_config_row(parent, text, key):
@@ -512,7 +512,7 @@ class MergeFrame(ctk.CTkFrame):
         
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray")
-        dnd_frame.pack(pady=20, fill="both", expand=True)
+        dnd_frame.pack(padx=5, pady=(10, 10), fill="both", expand=True)
         dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.app.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 

@@ -14,17 +14,17 @@ class FpsFrame(ctk.CTkFrame):
         self.app = app
         
         label = ctk.CTkLabel(self, text="帧率转换 (SRT/ASS)", font=self.app.font_title)
-        label.pack(pady=10, anchor="w")
+        label.pack(padx=5, pady=(10, 10), anchor="w")
         
         info = ctk.CTkLabel(self, text="说明: 对包含时间轴的字幕进行帧率转换。源文件将被备份为 .bak。", font=self.app.font_normal, justify="left")
-        info.pack(pady=5, anchor="w")
+        info.pack(padx=5, pady=(0, 10), anchor="w")
 
         fps_options = ["23.976", "24", "25", "29.97", "30", "59.94", "60"]
         self.src_fps_var = ctk.StringVar(value="23.976")
         self.dst_fps_var = ctk.StringVar(value="25")
 
         options_frame = ctk.CTkFrame(self, fg_color="transparent")
-        options_frame.pack(pady=10, fill="x")
+        options_frame.pack(padx=5, pady=(0, 10), fill="x")
 
         ctk.CTkLabel(options_frame, text="源帧率:", font=self.app.font_normal).pack(side="left", padx=5)
         ctk.CTkComboBox(options_frame, values=fps_options, variable=self.src_fps_var, font=self.app.font_normal, width=120).pack(side="left", padx=5)
@@ -34,11 +34,11 @@ class FpsFrame(ctk.CTkFrame):
         ctk.CTkLabel(options_frame, text="目标帧率:", font=self.app.font_normal).pack(side="left", padx=5)
         ctk.CTkComboBox(options_frame, values=fps_options, variable=self.dst_fps_var, font=self.app.font_normal, width=120).pack(side="left", padx=5)
 
-        ctk.CTkButton(self, text="选择文件/文件夹转换", font=self.app.font_normal, command=self.task_convert_fps).pack(pady=20, anchor="w")
+        ctk.CTkButton(self, text="选择文件/文件夹转换", font=self.app.font_normal, command=self.task_convert_fps).pack(padx=5, pady=(10, 10), anchor="w")
 
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray")
-        dnd_frame.pack(pady=20, fill="both", expand=True)
+        dnd_frame.pack(padx=5, pady=(10, 10), fill="both", expand=True)
         dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.app.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 

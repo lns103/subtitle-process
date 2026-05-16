@@ -14,16 +14,16 @@ class RenameFrame(ctk.CTkFrame):
         self.app = app
         
         label = ctk.CTkLabel(self, text="批量重命名字幕", font=self.app.font_title)
-        label.pack(pady=10, anchor="w")
+        label.pack(padx=5, pady=(10, 10), anchor="w")
         
         info = ctk.CTkLabel(self, text="说明: 根据视频文件名 (SxxExx) 重命名对应的字幕文件。\n支持拖拽文件夹或视频+字幕文件。", font=self.app.font_normal, justify="left")
-        info.pack(pady=5, anchor="w")
+        info.pack(padx=5, pady=(0, 10), anchor="w")
         
-        ctk.CTkButton(self, text="选择文件夹重命名", font=self.app.font_normal, command=self.task_rename_subs).pack(pady=20, anchor="w")
+        ctk.CTkButton(self, text="选择文件夹重命名", font=self.app.font_normal, command=self.task_rename_subs).pack(padx=5, pady=(10, 10), anchor="w")
 
         # 添加输入框 (拖动区域上方靠右)
         suffix_frame = ctk.CTkFrame(self, fg_color="transparent")
-        suffix_frame.pack(fill="x", padx=0, pady=(0, 5))
+        suffix_frame.pack(fill="x", padx=5, pady=(0, 5))
         
         self.suffix_entry = ctk.CTkEntry(suffix_frame, placeholder_text="自定义后缀 (如 .zh)", font=self.app.font_normal, width=150)
         self.suffix_entry.pack(side="right")
@@ -32,7 +32,7 @@ class RenameFrame(ctk.CTkFrame):
 
         # 拖拽区域
         dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray")
-        dnd_frame.pack(pady=10, fill="both", expand=True)
+        dnd_frame.pack(padx=5, pady=(10, 10), fill="both", expand=True)
         dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.app.font_normal, text_color="gray")
         dnd_label.place(relx=0.5, rely=0.5, anchor="center")
 

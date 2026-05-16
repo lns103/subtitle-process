@@ -148,14 +148,10 @@ class App(CTk):
         self.frames["shift"] = ShiftFrame(self, app=self, corner_radius=0, fg_color="transparent")
         
         # 底部日志区
-        self.log_frame = ctk.CTkFrame(self, corner_radius=0, height=100)
-        self.log_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
-        self.log_frame.grid_rowconfigure(0, weight=1)
-        self.log_frame.grid_columnconfigure(0, weight=1)
-        
-        self.log_box = ctk.CTkTextbox(self.log_frame, font=self.font_normal, height=100)
-        self.log_box.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.log_box = ctk.CTkTextbox(self, font=self.font_normal, height=100, corner_radius=10, state="disabled")
+        self.log_box.grid(row=1, column=1, sticky="nsew", padx=15, pady=(0, 15))
         self.last_log_was_progress = False
+        
         self.log("程序已启动...")
         if not HAS_DND:
             self.log("提示: 未检测到 tkinterdnd2，拖拽功能不可用。")
@@ -166,10 +162,13 @@ class App(CTk):
 
     def log(self, message):
         self.last_log_was_progress = False
+        self.log_box.configure(state="normal")
         self.log_box.insert("end", str(message) + "\n")
         self.log_box.see("end")
+        self.log_box.configure(state="disabled")
 
     def log_progress(self, message):
+        self.log_box.configure(state="normal")
         if self.last_log_was_progress:
             # Delete the previous progress line (which is the last line before 'end')
             # 'end-1l' to 'end' covers the last line including the newline
@@ -178,6 +177,7 @@ class App(CTk):
         self.log_box.insert("end", str(message) + "\n")
         self.log_box.see("end")
         self.last_log_was_progress = True
+        self.log_box.configure(state="disabled")
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         ctk.set_appearance_mode(new_appearance_mode)

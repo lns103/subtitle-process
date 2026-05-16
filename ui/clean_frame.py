@@ -14,14 +14,14 @@ class CleanFrame(ctk.CTkFrame):
         self.app = app
         
         label = ctk.CTkLabel(self, text="清理与格式化 (SRT/ASS)", font=self.app.font_title)
-        label.pack(pady=10, anchor="w")
+        label.pack(padx=5, pady=(10, 10), anchor="w")
 
         # 选项
         self.clean_skip_merge_var = ctk.BooleanVar(value=False)
 
         # 统一网格区域 (按钮 + 拖拽)
         grid_container = ctk.CTkFrame(self, fg_color="transparent")
-        grid_container.pack(pady=10, fill="both", expand=True)
+        grid_container.pack(padx=0, pady=(0, 10), fill="both", expand=True)
 
         grid_container.grid_columnconfigure(0, weight=1)
         grid_container.grid_columnconfigure(1, weight=1)

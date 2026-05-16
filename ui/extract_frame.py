@@ -22,22 +22,22 @@ class ExtractFrame(ctk.CTkFrame):
 
         # Row 0: Title
         label = ctk.CTkLabel(self, text="字幕提取 (FFmpeg)", font=self.app.font_title)
-        label.grid(row=0, column=0, sticky="w", padx=10, pady=10)
+        label.grid(row=0, column=0, sticky="w", padx=5, pady=(10, 10))
         
         # Row 1: File Selection
         self.extract_file_var = ctk.StringVar(value="未选择文件")
         
         file_frame = ctk.CTkFrame(self, fg_color="transparent")
-        file_frame.grid(row=1, column=0, sticky="ew", padx=0, pady=5)
+        file_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=(0, 10))
         
-        ctk.CTkButton(file_frame, text="选择视频文件", font=self.app.font_normal, command=self.select_video_file).pack(side="left", padx=(10, 10))
+        ctk.CTkButton(file_frame, text="选择视频文件", font=self.app.font_normal, command=self.select_video_file).pack(side="left", padx=(0, 10))
         self.lbl_extract_file = ctk.CTkLabel(file_frame, textvariable=self.extract_file_var, font=self.app.font_normal, text_color="gray", anchor="w")
         self.lbl_extract_file.pack(side="left", fill="x", expand=True)
 
         # Row 2: DnD
         if HAS_DND:
             dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray", height=60)
-            dnd_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+            dnd_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=(0, 10))
             dnd_frame.pack_propagate(False) 
             
             dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽视频文件到此处 (MP4 / MKV)", font=self.app.font_normal, text_color="gray")
@@ -47,14 +47,14 @@ class ExtractFrame(ctk.CTkFrame):
             dnd_frame.dnd_bind('<<Drop>>', self.on_drop_extract)
 
         # Row 3: Track Label
-        ctk.CTkLabel(self, text="可用字幕轨道:", font=self.app.font_bold).grid(row=3, column=0, sticky="w", padx=10, pady=(10, 5))
+        ctk.CTkLabel(self, text="可用字幕轨道:", font=self.app.font_bold).grid(row=3, column=0, sticky="w", padx=5, pady=(10, 5))
         
         # Row 4: Scroll List (Expands)
         self.tracks_scroll = ctk.CTkScrollableFrame(self, height=100)
-        self.tracks_scroll.grid(row=4, column=0, sticky="nsew", padx=10, pady=5)
+        self.tracks_scroll.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 10))
         
         # Row 5: Button (Fixed at bottom)
-        ctk.CTkButton(self, text="开始提取选中字幕", font=self.app.font_large_bold, height=40, command=self.task_dev_extract).grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        ctk.CTkButton(self, text="开始提取选中字幕", font=self.app.font_large_bold, height=40, command=self.task_dev_extract).grid(row=5, column=0, sticky="ew", padx=5, pady=(10, 10))
 
         # 内部变量
         self.current_video_path = None

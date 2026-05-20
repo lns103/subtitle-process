@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import re
+import os
 
 def process_dialogue_inline_styles(line, scale_factor):
     def replace_tag(match):
@@ -27,7 +28,7 @@ def process_dialogue_inline_styles(line, scale_factor):
     )
     return processed_line
 
-def process_ass_file(input_path, output_path):
+def process_ass_file(input_path, output_path, target_res=1080):
     default_playres_x = 384
     default_playres_y = 288
 
@@ -94,7 +95,7 @@ def process_ass_file(input_path, output_path):
         playres_x = default_playres_x
     if playres_y is None or playres_y == 0:
         playres_y = default_playres_y
-    scale_factor = playres_y / 1080
+    scale_factor = playres_y / target_res
 
     output_lines = []
     in_styles = False
@@ -151,9 +152,10 @@ def process_ass_file(input_path, output_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="调整 ASS 字幕文件：设置 ScaledBorderAndShadow 为 yes，并按 1080p 分辨率缩放边框和阴影参数。"
+        description="调整 ASS 字幕文件：设置 ScaledBorderAndShadow 为 yes，并按指定目标分辨率缩放边框和阴影参数。"
     )
     parser.add_argument("input", help="输入的 ASS 字幕文件路径")
+    parser.add_argument("--target_res", type=int, default=1080, help="目标分辨率 (默认 1080)")
     # parser.add_argument("output", help="输出的 ASS 字幕文件路径")
     args = parser.parse_args()
-    process_ass_file(args.input, args.input)
+    process_ass_file(args.input, args.input, target_res=args.target_res)

@@ -15,13 +15,9 @@ if tools_dir not in sys.path:
 
 try:
     from tools.subtitle_api import SubtitleTool
-except ImportError:
-    # 尝试直接导入（如果在 tools 目录下运行）
-    try:
-        from subtitle_api import SubtitleTool
-    except ImportError as e:
-        print(f"Error importing tools: {e}")
-        SubtitleTool = None
+except ImportError as e:
+    print(f"Error importing tools: {e}")
+    SubtitleTool = None
 
 # 尝试导入 TkinterDnD 用于拖拽
 try:

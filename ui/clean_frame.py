@@ -55,11 +55,33 @@ class CleanFrame(ctk.CTkFrame):
         lbl_format = ctk.CTkLabel(self.dnd_format, text="拖拽到此\n格式化中文 SRT\n(标点处理)", font=self.app.font_normal, text_color="gray")
         lbl_format.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 3. ASS 缩放 DND (Row 1)
-        self.dnd_ass = ctk.CTkFrame(grid_container, border_width=2, border_color="gray")
-        self.dnd_ass.grid(row=1, column=2, padx=5, sticky="nsew")
+        # 3. ASS 缩放 Config + DND (Row 1, Column 2)
+        col2_frame = ctk.CTkFrame(grid_container, fg_color="transparent")
+        col2_frame.grid(row=1, column=2, padx=5, sticky="nsew")
+        col2_frame.grid_rowconfigure(1, weight=1) # DND expands
+        col2_frame.grid_columnconfigure(0, weight=1)
         
-        lbl_ass = ctk.CTkLabel(self.dnd_ass, text="拖拽到此\nASS 描边缩放\n(1080p优化)", font=self.app.font_normal, text_color="gray")
+        # 选项
+        res_frame = ctk.CTkFrame(col2_frame, fg_color="transparent")
+        res_frame.grid(row=0, column=0, pady=(0, 5), sticky="w")
+        
+        lbl_res = ctk.CTkLabel(res_frame, text="目标分辨率:", font=self.app.font_normal)
+        lbl_res.pack(side="left", padx=(0, 5))
+        
+        self.ass_target_res_var = ctk.StringVar(value="1080")
+        self.ass_target_res_combo = ctk.CTkComboBox(
+            res_frame, 
+            values=["1080", "720", "480", "1440", "2160"], 
+            variable=self.ass_target_res_var, 
+            font=self.app.font_normal, 
+            width=80
+        )
+        self.ass_target_res_combo.pack(side="left")
+        
+        self.dnd_ass = ctk.CTkFrame(col2_frame, border_width=2, border_color="gray")
+        self.dnd_ass.grid(row=1, column=0, sticky="nsew")
+        
+        lbl_ass = ctk.CTkLabel(self.dnd_ass, text="拖拽到此\nASS 描边缩放\n(以目标分辨率计算固定描边)", font=self.app.font_normal, text_color="gray")
         lbl_ass.place(relx=0.5, rely=0.5, anchor="center")
         
         if HAS_DND:
@@ -122,10 +144,19 @@ class CleanFrame(ctk.CTkFrame):
         self.app.run_task(lambda: self.task_scale_ass_run(paths))
 
     def task_scale_ass_run(self, paths):
-        self.app.log("开始处理 ASS 描边...")
+        target_res_str = self.ass_target_res_var.get().strip()
+        try:
+            target_res = int(target_res_str)
+            if target_res <= 0:
+                raise ValueError()
+        except ValueError:
+            self.app.log("错误: 目标分辨率必须是正整数。")
+            return
+
+        self.app.log(f"开始处理 ASS 描边 (目标分辨率: {target_res})...")
         if SubtitleTool is None:
             self.app.log("Error: SubtitleTool not loaded.")
             return
-        for msg in SubtitleTool.scale_ass_outline(paths):
+        for msg in SubtitleTool.scale_ass_outline(paths, target_res=target_res):
             self.app.log(msg)
         self.app.log("任务结束")

@@ -147,10 +147,11 @@ class SubtitleTool:
             yield msg
 
     @staticmethod
-    def scale_ass_outline(paths):
+    def scale_ass_outline(paths, target_res=1080):
         """
-        缩放 ASS 字幕边框 (针对 1080p 优化)
+        缩放 ASS 字幕边框 (针对指定目标分辨率优化)
         :param paths: 文件路径列表
+        :param target_res: 目标分辨率
         :return: Generator yielding result messages
         """
         if isinstance(paths, str):
@@ -162,10 +163,10 @@ class SubtitleTool:
                 for f in os.listdir(p):
                     if f.lower().endswith(".ass"):
                         full_path = os.path.join(p, f)
-                        success, msg = ass_outlinescale.process_ass_file(full_path, full_path)
+                        success, msg = ass_outlinescale.process_ass_file(full_path, full_path, target_res=target_res)
                         yield msg
             elif os.path.isfile(p):
-                success, msg = ass_outlinescale.process_ass_file(p, p)
+                success, msg = ass_outlinescale.process_ass_file(p, p, target_res=target_res)
                 yield msg
 
 

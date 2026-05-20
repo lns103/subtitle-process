@@ -57,7 +57,7 @@ class App(CTk):
     
     def load_config(self):
         default_config = {
-            "merge_translated_suffix": ".zh.srt",
+            "merge_feature_pattern": "zh",
             "merge_lang1_style_name": "Translate",
             "merge_lang1_style_def": "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1",
             "merge_lang2_style_name": "Original",

@@ -78,6 +78,39 @@ class SubtitleTool:
                 yield msg
 
     @staticmethod
+    def match_bilingual_files(paths, pattern):
+        """
+        根据特征/路径识别匹配双语字幕文件
+        :param paths: 文件夹路径或文件路径列表
+        :param pattern: 匹配特征字，例如 'zh'
+        :return: (matched_pairs, unmatched_original, unmatched_translated)
+        """
+        if isinstance(paths, str):
+            paths = [paths]
+            
+        # Find all .srt files recursively
+        all_files = []
+        for p in paths:
+            if os.path.isdir(p):
+                for root, _, filenames in os.walk(p):
+                    for f in filenames:
+                        if f.lower().endswith(".srt"):
+                            all_files.append(os.path.join(root, f))
+            elif os.path.isfile(p):
+                if p.lower().endswith(".srt"):
+                    all_files.append(p)
+                    
+        # Remove duplicates
+        all_files = list(set(os.path.abspath(f) for f in all_files))
+        
+        try:
+            from . import merge_srt
+        except ImportError:
+            import merge_srt
+            
+        return merge_srt.classify_and_match_files(all_files, pattern)
+
+    @staticmethod
     def merge_bilingual_srt(paths, **kwargs):
         """
         合并双语字幕 (文件夹下的 英文.srt 和 中文.srt)

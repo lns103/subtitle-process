@@ -464,6 +464,168 @@ def process_files(file_list, **kwargs):
             
     return results
 
+def classify_and_match_files(file_paths, pattern):
+    """
+    根据特征/路径识别进行匹配。
+    :param file_paths: SRT文件路径列表
+    :param pattern: 匹配特征字，例如 'zh'
+    :return: (matched_pairs, unmatched_original, unmatched_translated)
+      - matched_pairs: [{"original": path1, "translated": path2}]
+      - unmatched_original: [{"path": path1, "reason": "no_match"|"multiple_matches"}]
+      - unmatched_translated: [{"path": path1, "reason": "no_match"|"multiple_matches"}]
+    """
+    pattern = pattern.strip().lower()
+    if not pattern:
+        pattern = "zh"
+        
+    translated_files = []
+    original_files = []
+    
+    # 1. Classify each file
+    for path in file_paths:
+        if not path.lower().endswith(".srt"):
+            continue
+        path = os.path.abspath(path)
+        filename = os.path.basename(path).lower()
+        
+        name_we, ext = os.path.splitext(filename)
+        is_translated = False
+        
+        # Check name suffix: name_we ends with .pattern, _pattern, -pattern (with optional sub-tags) or is pattern
+        if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name_we):
+            is_translated = True
+            
+        if not is_translated:
+            # Check directories: check if any directory name ends with the pattern
+            norm_path = path.replace('\\', '/').lower()
+            parts = norm_path.split('/')
+            # Check directory components (excluding drive letter and filename)
+            for p in parts[1:-1]:
+                if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', p):
+                    is_translated = True
+                    break
+                    
+        if is_translated:
+            translated_files.append(path)
+        else:
+            original_files.append(path)
+            
+    # 2. Setup helper to get clean filename
+    def get_clean_name(filepath, is_trans):
+        filename = os.path.basename(filepath)
+        name, ext = os.path.splitext(filename)
+        name = name.lower()
+        if not is_trans:
+            return name
+        # Remove pattern suffix
+        match = re.search(rf'[._-]{re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name)
+        if match:
+            return name[:match.start()]
+        if name == pattern:
+            return ""
+        return name
+
+    # Group files by clean name
+    orig_by_name = {}
+    for orig in original_files:
+        cname = get_clean_name(orig, is_trans=False)
+        orig_by_name.setdefault(cname, []).append(orig)
+        
+    trans_by_name = {}
+    for trans in translated_files:
+        cname = get_clean_name(trans, is_trans=True)
+        trans_by_name.setdefault(cname, []).append(trans)
+        
+    matched_pairs = []
+    unmatched_original = []
+    unmatched_translated = []
+    
+    # Helper to get clean directory path
+    def get_clean_dir(filepath):
+        dir_path = os.path.dirname(os.path.abspath(filepath))
+        norm = dir_path.replace('\\', '/').lower()
+        parts = norm.split('/')
+        if parts and re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', parts[-1]):
+            parts = parts[:-1]
+        skip_folders = {"en", "eng", "english", "original", "orig", "org", "source", "src", "en-us", "en-gb", "us", "uk"}
+        cleaned_parts = []
+        for p in parts:
+            if p not in skip_folders:
+                cleaned_parts.append(p)
+        return '/'.join(cleaned_parts)
+
+    all_clean_names = set(orig_by_name.keys()) | set(trans_by_name.keys())
+    
+    for cname in all_clean_names:
+        origs = orig_by_name.get(cname, [])
+        trans = trans_by_name.get(cname, [])
+        
+        if not origs:
+            for t in trans:
+                unmatched_translated.append({"path": t, "reason": "no_match"})
+            continue
+        if not trans:
+            for o in origs:
+                unmatched_original.append({"path": o, "reason": "no_match"})
+            continue
+            
+        # Try to match strictly within clean directory
+        orig_by_dir = {}
+        for o in origs:
+            orig_by_dir.setdefault(get_clean_dir(o), []).append(o)
+            
+        trans_by_dir = {}
+        for t in trans:
+            trans_by_dir.setdefault(get_clean_dir(t), []).append(t)
+            
+        remaining_origs = list(origs)
+        remaining_trans = list(trans)
+        
+        all_dirs = set(orig_by_dir.keys()) | set(trans_by_dir.keys())
+        
+        # Keep track of local conflicts in directories
+        local_conflict_origs = set()
+        local_conflict_trans = set()
+        
+        for d in all_dirs:
+            o_list = orig_by_dir.get(d, [])
+            t_list = trans_by_dir.get(d, [])
+            if len(o_list) == 1 and len(t_list) == 1:
+                o_file = o_list[0]
+                t_file = t_list[0]
+                matched_pairs.append({"original": o_file, "translated": t_file})
+                remaining_origs.remove(o_file)
+                remaining_trans.remove(t_file)
+            else:
+                if len(o_list) > 1:
+                    local_conflict_origs.update(o_list)
+                if len(t_list) > 1:
+                    local_conflict_trans.update(t_list)
+                    
+        # Try to match remaining files globally (fuzzy match)
+        if len(remaining_origs) == 1 and len(remaining_trans) == 1:
+            o_file = remaining_origs[0]
+            t_file = remaining_trans[0]
+            if o_file not in local_conflict_origs and t_file not in local_conflict_trans:
+                matched_pairs.append({"original": o_file, "translated": t_file})
+                remaining_origs.remove(o_file)
+                remaining_trans.remove(t_file)
+                
+        # Any leftover remaining files are unmatched conflicts/errors
+        for o in remaining_origs:
+            reason = "multiple_matches" if len(trans) > 1 or o in local_conflict_origs else "no_match"
+            unmatched_original.append({"path": o, "reason": reason})
+        for t in remaining_trans:
+            reason = "multiple_matches" if len(origs) > 1 or t in local_conflict_trans else "no_match"
+            unmatched_translated.append({"path": t, "reason": reason})
+            
+    # Sort for deterministic display
+    matched_pairs.sort(key=lambda x: x["original"].lower())
+    unmatched_original.sort(key=lambda x: x["path"].lower())
+    unmatched_translated.sort(key=lambda x: x["path"].lower())
+    
+    return matched_pairs, unmatched_original, unmatched_translated
+
 def main():
     if len(sys.argv) < 2:
         print("用法: python merge_srt.py <srt文件所在文件夹>")

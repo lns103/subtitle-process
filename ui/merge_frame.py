@@ -1,6 +1,7 @@
 import customtkinter as ctk
 import threading
 import re
+import os
 from tools.subtitle_api import SubtitleTool
 
 try:
@@ -471,54 +472,139 @@ class MergeFrame(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self.app = app
         
-        # 顶部布局分两列
-        top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        top_frame.pack(fill="x", padx=5, pady=(10, 10))
+        self.all_loaded_filepaths = []
+        self.items = []
         
-        left_col = ctk.CTkFrame(top_frame, fg_color="transparent")
-        left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        # Configure layout: Column 0 expands, Row 2 (the scroll frame container) expands
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         
-        right_col = ctk.CTkFrame(top_frame, fg_color="transparent")
-        right_col.pack(side="right", fill="both", expand=True)
-
-        label = ctk.CTkLabel(left_col, text="合并双语字幕 (SRT -> ASS)", font=self.app.font_title)
-        label.pack(pady=(0, 10), anchor="w")
+        # --- Row 0: Title and Info ---
+        top_info_frame = ctk.CTkFrame(self, fg_color="transparent")
+        top_info_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=(10, 5))
         
-        info = ctk.CTkLabel(left_col, text="说明: 要求文件夹内同时存在原语言和翻译语言文件。\n默认为 .srt 和 .zh.srt。\n也可直接拖拽配对的源语言 .srt 文件。", font=self.app.font_normal, justify="left")
-        info.pack(pady=(0, 10), anchor="w")
-
-        ctk.CTkButton(left_col, text="选择文件夹合并", font=self.app.font_normal, command=self.task_merge_bilingual).pack(pady=(10, 10), anchor="w")
+        label = ctk.CTkLabel(top_info_frame, text="合并双语字幕 (SRT -> ASS)", font=self.app.font_title)
+        label.pack(anchor="w")
         
-        # 右侧配置项
-        def add_config_row(parent, text, key):
-            row = ctk.CTkFrame(parent, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            ctk.CTkLabel(row, text=text, width=120, anchor="w", font=self.app.font_normal).pack(side="left")
-            var = ctk.StringVar(value=self.app.config.get(key, ""))
-            def on_change(*args):
-                self.app.config[key] = var.get()
-                self.app.save_config()
-            var.trace_add("write", on_change)
-            entry = ctk.CTkEntry(row, textvariable=var, font=self.app.font_normal)
-            entry.pack(side="left", fill="x", expand=True)
-            return var
-
-        ctk.CTkLabel(right_col, text="基本设置 (Basic)", font=self.app.font_bold).pack(pady=(0, 5), anchor="w")
-        self.var_merge_suffix = add_config_row(right_col, "翻译文件后缀:", "merge_translated_suffix")
-        self.var_merge_out_suffix = add_config_row(right_col, "合并后后缀:", "merge_output_suffix")
-
-        ctk.CTkLabel(right_col, text="高级设置 (Advanced)", font=self.app.font_bold).pack(pady=(20, 5), anchor="w")
-        ctk.CTkButton(right_col, text="高级样式自定义...", font=self.app.font_normal, command=self.open_style_config_dialog).pack(fill="x", pady=5)
+        info = ctk.CTkLabel(
+            top_info_frame, 
+            text="说明: 支持自定义特征字（仅识别文件名/文件夹名后缀，如 'zh' -> xxx.zh.srt 或 /zh/、/xxx_zh/，不识别前缀）\n选择或拖拽文件/文件夹，程序将自动进行双语字幕匹配，不匹配的字幕置顶显示为红色，可以点击 '×' 按钮移除", 
+            font=self.app.font_normal, 
+            justify="left",
+            text_color="gray"
+        )
+        info.pack(anchor="w", pady=(2, 0))
         
-        # 拖拽区域
-        dnd_frame = ctk.CTkFrame(self, border_width=2, border_color="gray")
-        dnd_frame.pack(padx=5, pady=(10, 10), fill="both", expand=True)
-        dnd_label = ctk.CTkLabel(dnd_frame, text="拖拽文件夹或文件到此处", font=self.app.font_normal, text_color="gray")
-        dnd_label.place(relx=0.5, rely=0.5, anchor="center")
-
+        # --- Row 1: Actions & Settings ---
+        controls_frame = ctk.CTkFrame(self, fg_color="transparent")
+        controls_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        controls_frame.grid_columnconfigure(0, weight=1) # Left col
+        controls_frame.grid_columnconfigure(1, weight=1) # Right col
+        controls_frame.grid_rowconfigure(0, weight=1)     # Allow vertical stretching
+        
+        # Left side: Drag & Drop Button
+        self.btn_select = ctk.CTkButton(
+            controls_frame, 
+            text="选择文件/文件夹\n(支持拖拽文件/文件夹至此)", 
+            font=self.app.font_bold, 
+            command=self.select_folder_or_files
+        )
+        self.btn_select.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        
         if HAS_DND:
-            dnd_frame.drop_target_register(DND_FILES)
-            dnd_frame.dnd_bind('<<Drop>>', self.on_drop_merge)
+            self.btn_select.drop_target_register(DND_FILES)
+            self.btn_select.dnd_bind('<<Drop>>', self.on_drop_merge)
+            
+        # Right side: Config rows
+        right_col = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        right_col.grid(row=0, column=1, sticky="nsew")
+        
+        # Config 1: Pattern
+        row1 = ctk.CTkFrame(right_col, fg_color="transparent")
+        row1.pack(side="top", fill="x", pady=2)
+        ctk.CTkLabel(row1, text="匹配特征 (如 zh):", width=120, anchor="w", font=self.app.font_normal).pack(side="left")
+        self.var_feature_pattern = ctk.StringVar(value=self.app.config.get("merge_feature_pattern", "zh"))
+        def on_pattern_change(*args):
+            self.app.config["merge_feature_pattern"] = self.var_feature_pattern.get()
+            self.app.save_config()
+            self.rematch_current_files()
+        self.var_feature_pattern.trace_add("write", on_pattern_change)
+        entry_pattern = ctk.CTkEntry(row1, textvariable=self.var_feature_pattern, font=self.app.font_normal, width=150)
+        entry_pattern.pack(side="left")
+        
+        # Config 2: Output Suffix
+        row2 = ctk.CTkFrame(right_col, fg_color="transparent")
+        row2.pack(side="top", fill="x", pady=2)
+        ctk.CTkLabel(row2, text="合并后后缀:", width=120, anchor="w", font=self.app.font_normal).pack(side="left")
+        
+        default_suffix = self.app.config.get("merge_output_suffix", ".zh&en.ass")
+        if default_suffix.endswith(".ass"):
+            default_suffix = default_suffix[:-4]
+            
+        self.var_merge_out_suffix = ctk.StringVar(value=default_suffix)
+        def on_suffix_change(*args):
+            self.app.config["merge_output_suffix"] = self.var_merge_out_suffix.get() + ".ass"
+            self.app.save_config()
+        self.var_merge_out_suffix.trace_add("write", on_suffix_change)
+        entry_suffix = ctk.CTkEntry(row2, textvariable=self.var_merge_out_suffix, font=self.app.font_normal, width=150)
+        entry_suffix.pack(side="left")
+        
+        lbl_ass_ext = ctk.CTkLabel(row2, text=".ass", font=self.app.font_bold)
+        lbl_ass_ext.pack(side="left", padx=(5, 0))
+        
+        # Config 3: Style Config Button
+        row3 = ctk.CTkFrame(right_col, fg_color="transparent")
+        row3.pack(side="bottom", fill="x", pady=(5, 2))
+        row3_btn = ctk.CTkButton(row3, text="高级样式自定义...", font=self.app.font_normal, command=self.open_style_config_dialog)
+        row3_btn.pack(fill="x")
+        
+        # --- Row 2: Matched List Area ---
+        list_container = ctk.CTkFrame(self)
+        list_container.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        list_container.grid_columnconfigure(0, weight=1)
+        list_container.grid_rowconfigure(1, weight=1)
+        
+        # List Header
+        header_frame = ctk.CTkFrame(list_container, fg_color="transparent", height=24)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(5, 2))
+        header_frame.grid_columnconfigure(0, weight=1)
+        header_frame.grid_columnconfigure(1, weight=0)
+        header_frame.grid_columnconfigure(2, weight=1)
+        header_frame.grid_columnconfigure(3, weight=0)
+        
+        ctk.CTkLabel(header_frame, text="原始字幕 (Original)", font=self.app.font_bold, anchor="w").grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(header_frame, text="   状态   ", font=self.app.font_bold, text_color="gray").grid(row=0, column=1)
+        ctk.CTkLabel(header_frame, text="翻译字幕 (Translation)", font=self.app.font_bold, anchor="w").grid(row=0, column=2, sticky="ew")
+        ctk.CTkLabel(header_frame, text="操作", font=self.app.font_bold, anchor="center").grid(row=0, column=3, padx=15)
+        
+        # Scrollable list
+        self.scroll_frame = ctk.CTkScrollableFrame(list_container, fg_color="transparent")
+        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
+        
+        # --- Row 3: Bottom action buttons ---
+        bottom_actions = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_actions.grid(row=3, column=0, sticky="ew", padx=5, pady=(5, 10))
+        
+        self.btn_clear = ctk.CTkButton(
+            bottom_actions, 
+            text="清除列表", 
+            fg_color=("#FF4D4D", "#CC3333"), 
+            hover_color=("#FF1A1A", "#992222"), 
+            font=self.app.font_bold,
+            command=self.clear_list
+        )
+        self.btn_clear.pack(side="left", padx=(0, 10))
+        
+        self.btn_merge = ctk.CTkButton(
+            bottom_actions, 
+            text="开始合并", 
+            font=self.app.font_bold,
+            command=self.task_merge_list
+        )
+        self.btn_merge.pack(side="right", fill="x", expand=True)
+        
+        # Initial list refresh
+        self.refresh_list_ui()
 
     def open_style_config_dialog(self):
         if hasattr(self, "style_dialog") and self.style_dialog.winfo_exists():
@@ -528,33 +614,353 @@ class MergeFrame(ctk.CTkFrame):
 
     def on_drop_merge(self, event):
         files = self.app.parse_drop_files(event.data)
-        if not files: return
-        self.app.run_task(lambda: self.task_merge_bilingual_run(files))
+        if not files:
+            return
+        self.add_loaded_paths(files)
 
-    def task_merge_bilingual(self):
-        paths = self.app.get_paths("folder")
-        if not paths: return
-        self.app.run_task(lambda: self.task_merge_bilingual_run(paths))
+    def select_folder_or_files(self):
+        from tkinter import messagebox, filedialog
+        choice = messagebox.askyesnocancel(
+            "选择导入类型",
+            "是否选择字幕文件？\n\n- 点击「是」选择单个/多个字幕文件 (.srt)\n- 点击「否」选择整个文件夹\n- 点击「取消」返回"
+        )
+        if choice is True: # User clicked Yes -> Select Files
+            paths = filedialog.askopenfilenames(
+                title="选择字幕文件",
+                filetypes=[("SRT Subtitles", "*.srt"), ("All Files", "*.*")]
+            )
+            if paths:
+                self.add_loaded_paths(list(paths))
+        elif choice is False: # User clicked No -> Select Folder
+            path = filedialog.askdirectory(title="选择字幕文件夹")
+            if path:
+                self.add_loaded_paths([path])
 
-    def task_merge_bilingual_run(self, paths):
+    def add_loaded_paths(self, paths):
+        # Scan folders recursively to find all .srt files
+        all_srts = []
+        for p in paths:
+            if os.path.isdir(p):
+                for root, _, filenames in os.walk(p):
+                    for f in filenames:
+                        if f.lower().endswith(".srt"):
+                            all_srts.append(os.path.join(root, f))
+            elif os.path.isfile(p):
+                if p.lower().endswith(".srt"):
+                    all_srts.append(p)
+                    
+        # Add to the pool and de-duplicate
+        for srt in all_srts:
+            abs_srt = os.path.abspath(srt)
+            if abs_srt not in self.all_loaded_filepaths:
+                self.all_loaded_filepaths.append(abs_srt)
+                
+        # Rematch and refresh
+        self.rematch_current_files()
+
+    def rematch_current_files(self):
+        if not self.all_loaded_filepaths:
+            self.items = []
+            self.refresh_list_ui()
+            return
+            
+        pattern = self.var_feature_pattern.get().strip()
+        if not pattern:
+            pattern = "zh"
+            
         if SubtitleTool is None:
             self.app.log("Error: SubtitleTool not loaded.")
             return
+            
+        matched_pairs, unmatched_orig, unmatched_trans = SubtitleTool.match_bilingual_files(
+            self.all_loaded_filepaths,
+            pattern
+        )
+        
+        self.items = []
+        for pair in matched_pairs:
+            self.items.append({
+                "type": "matched",
+                "original": pair["original"],
+                "translated": pair["translated"]
+            })
+        for orig in unmatched_orig:
+            self.items.append({
+                "type": "unmatched_original",
+                "original": orig["path"],
+                "reason": orig["reason"]
+            })
+        for trans in unmatched_trans:
+            self.items.append({
+                "type": "unmatched_translated",
+                "translated": trans["path"],
+                "reason": trans["reason"]
+            })
+            
+        self.refresh_list_ui()
 
+    def format_display_path(self, filepath, pattern, is_translated, max_len=40):
+        filename = os.path.basename(filepath)
+        if not is_translated:
+            # Truncate original filename in the middle if too long
+            if len(filename) <= max_len:
+                return filename
+            name, ext = os.path.splitext(filename)
+            keep_len = max_len - len(ext) - 3
+            if keep_len <= 0:
+                return filename[:max_len]
+            half = keep_len // 2
+            return f"{name[:half]}...{name[-half:]}{ext}"
+        else:
+            # If path-matched (i.e. filename itself doesn't end with pattern + optional sub-tags)
+            name, ext = os.path.splitext(filename)
+            is_path_matched = not re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name.lower())
+            
+            if is_path_matched:
+                display_name = f"{pattern}/{filename}"
+                if len(display_name) <= max_len:
+                    return display_name
+                prefix = f"{pattern}/"
+                keep_len = max_len - len(prefix) - len(ext) - 3
+                if keep_len <= 0:
+                    return display_name[:max_len]
+                half = keep_len // 2
+                return f"{prefix}{name[:half]}...{name[-half:]}{ext}"
+            else:
+                if len(filename) <= max_len:
+                    return filename
+                match = re.search(rf'[._-]{re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name, re.IGNORECASE)
+                if match:
+                    suffix = match.group(0) + ext
+                    base_name = name[:match.start()]
+                    keep_len = max_len - len(suffix) - 3
+                    if keep_len <= 0:
+                        return filename[:max_len]
+                    half = keep_len // 2
+                    return f"{base_name[:half]}...{base_name[-half:]}{suffix}"
+                else:
+                    if len(filename) <= max_len:
+                        return filename
+                    keep_len = max_len - len(ext) - 3
+                    if keep_len <= 0:
+                        return filename[:max_len]
+                    half = keep_len // 2
+                    return f"{name[:half]}...{name[-half:]}{ext}"
+
+    def remove_item(self, item):
+        # Remove from loaded file pool
+        if item["type"] == "matched":
+            if item["original"] in self.all_loaded_filepaths:
+                self.all_loaded_filepaths.remove(item["original"])
+            if item["translated"] in self.all_loaded_filepaths:
+                self.all_loaded_filepaths.remove(item["translated"])
+        elif item["type"] == "unmatched_original":
+            if item["original"] in self.all_loaded_filepaths:
+                self.all_loaded_filepaths.remove(item["original"])
+        elif item["type"] == "unmatched_translated":
+            if item["translated"] in self.all_loaded_filepaths:
+                self.all_loaded_filepaths.remove(item["translated"])
+                
+        self.rematch_current_files()
+
+    def clear_list(self):
+        self.all_loaded_filepaths = []
+        self.items = []
+        self.refresh_list_ui()
+        self.app.log("已清空待合并字幕列表")
+
+    def refresh_list_ui(self):
+        # Destroy all children in the scrollable frame
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+            
+        # Re-populate the scrollable frame
+        # We sort the items so that unmatched items are at the top
+        sorted_items = sorted(
+            self.items,
+            key=lambda x: 0 if x["type"] in ("unmatched_original", "unmatched_translated") else 1
+        )
+        
+        if not sorted_items:
+            # Show a placeholder label in the scrollable frame
+            placeholder = ctk.CTkLabel(
+                self.scroll_frame,
+                text="暂无待合并字幕，请选择/拖拽文件夹或文件到上方按钮中",
+                font=self.app.font_normal,
+                text_color="gray"
+            )
+            placeholder.pack(pady=40)
+            return
+            
+        pattern = self.var_feature_pattern.get().strip()
+            
+        for idx, item in enumerate(sorted_items):
+            is_matched = item["type"] == "matched"
+            
+            # Determine styling
+            if is_matched:
+                row_fg = "transparent"
+                row_border_width = 0
+                row_border_color = None
+                text_color = None # default
+            else:
+                row_fg = ("#FFF0F0", "#3A1A1A")
+                row_border_width = 1
+                row_border_color = ("#FFAAAA", "#662222")
+                text_color = ("#CC0000", "#FF6B6B")
+                
+            row_frame = ctk.CTkFrame(
+                self.scroll_frame,
+                fg_color=row_fg,
+                border_width=row_border_width,
+                border_color=row_border_color,
+                corner_radius=6
+            )
+            row_frame.pack(fill="x", padx=5, pady=3)
+            
+            row_frame.grid_columnconfigure(0, weight=1) # Original label
+            row_frame.grid_columnconfigure(1, weight=0) # Suffix indicator/arrow
+            row_frame.grid_columnconfigure(2, weight=1) # Translated label
+            row_frame.grid_columnconfigure(3, weight=0) # Delete button
+            
+            # Original label
+            if item["type"] == "unmatched_translated":
+                if item.get("reason") == "multiple_matches":
+                    orig_text = "存在多个原始文件匹配 (冲突)"
+                else:
+                    orig_text = "未匹配到原始文件"
+                orig_color = ("#CC0000", "#FF6B6B")
+            else:
+                orig_path = item["original"]
+                orig_text = self.format_display_path(orig_path, pattern, is_translated=False)
+                orig_color = text_color
+                
+            lbl_orig = ctk.CTkLabel(
+                row_frame,
+                text=orig_text,
+                text_color=orig_color,
+                font=self.app.font_normal,
+                anchor="w",
+                justify="left"
+            )
+            lbl_orig.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
+            
+            # Separator/Arrow
+            arrow_text = "   →   " if is_matched else "   ?   "
+            arrow_color = "gray" if is_matched else ("#CC0000", "#FF6B6B")
+            lbl_arrow = ctk.CTkLabel(
+                row_frame,
+                text=arrow_text,
+                text_color=arrow_color,
+                font=self.app.font_bold
+            )
+            lbl_arrow.grid(row=0, column=1, padx=5, pady=5)
+            
+            # Translated label
+            if item["type"] == "unmatched_original":
+                if item.get("reason") == "multiple_matches":
+                    trans_text = "存在多个翻译文件匹配 (冲突)"
+                else:
+                    trans_text = "未匹配到翻译文件"
+                trans_color = ("#CC0000", "#FF6B6B")
+            else:
+                trans_path = item["translated"]
+                trans_text = self.format_display_path(trans_path, pattern, is_translated=True)
+                trans_color = text_color
+                
+            lbl_trans = ctk.CTkLabel(
+                row_frame,
+                text=trans_text,
+                text_color=trans_color,
+                font=self.app.font_normal,
+                anchor="w",
+                justify="left"
+            )
+            lbl_trans.grid(row=0, column=2, padx=10, pady=5, sticky="ew")
+            
+            # Delete/Cross button
+            btn_del = ctk.CTkButton(
+                row_frame,
+                text="×",
+                width=24,
+                height=24,
+                fg_color="transparent",
+                text_color=("gray", "lightgray") if is_matched else ("#CC0000", "#FF6B6B"),
+                hover_color=("#EAEAEA", "#2A2A2A") if is_matched else ("#FFD0D0", "#5A2A2A"),
+                font=ctk.CTkFont(size=14, weight="bold"),
+                command=lambda it=item: self.remove_item(it)
+            )
+            btn_del.grid(row=0, column=3, padx=10, pady=5)
+
+    def get_merge_output_path(self, orig_path, trans_path, pattern, suffix):
+        orig_dir = os.path.dirname(os.path.abspath(orig_path))
+        trans_dir = os.path.dirname(os.path.abspath(trans_path))
+        
+        orig_norm = orig_dir.replace('\\', '/').rstrip('/')
+        trans_norm = trans_dir.replace('\\', '/').rstrip('/')
+        
+        # Check if trans_norm ends with pattern as a folder suffix
+        # e.g., /zh or /xxx_zh
+        trans_parent = trans_norm
+        parts = trans_norm.split('/')
+        if parts:
+            last_part = parts[-1]
+            if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', last_part.lower()):
+                trans_parent = '/'.join(parts[:-1])
+                
+        if trans_parent.lower() == orig_norm.lower():
+            # Same path family, output to orig_dir/merge
+            output_dir = os.path.join(orig_dir, "merge")
+        else:
+            # Different paths, output to trans_dir/merge
+            output_dir = os.path.join(trans_dir, "merge")
+            
+        base = os.path.splitext(os.path.basename(orig_path))[0]
+        return os.path.join(output_dir, f"{base}{suffix}")
+
+    def task_merge_list(self):
+        self.app.run_task(self.task_merge_list_run)
+
+    def task_merge_list_run(self):
+        matched_items = [it for it in self.items if it["type"] == "matched"]
+        if not matched_items:
+            self.app.log("错误: 没有可合并的字幕配对！")
+            return
+            
         kwargs = {
-            "translated_suffix": self.app.config.get("merge_translated_suffix"),
             "lang1_style_name": self.app.config.get("merge_lang1_style_name"),
             "lang1_style_def": self.app.config.get("merge_lang1_style_def"),
             "lang2_style_name": self.app.config.get("merge_lang2_style_name"),
             "lang2_style_def": self.app.config.get("merge_lang2_style_def"),
             "author": self.app.config.get("merge_author"),
             "comment": self.app.config.get("merge_comment"),
-            "output_suffix": self.app.config.get("merge_output_suffix"),
-            "playresx": self.app.config.get("merge_playresx"),
-            "playresy": self.app.config.get("merge_playresy")
+            "output_suffix": self.app.config.get("merge_output_suffix", ".zh&en.ass"),
+            "playresx": self.app.config.get("merge_playresx", 1920),
+            "playresy": self.app.config.get("merge_playresy", 1080)
         }
+        
+        self.app.log(f"开始合并双语字幕: {len(matched_items)} 对")
+        
+        from tools import merge_srt
+        success_count = 0
+        pattern = self.var_feature_pattern.get().strip()
+        if not pattern:
+            pattern = "zh"
             
-        self.app.log(f"开始合并双语字幕: {len(paths)} 个项目")
-        for msg in SubtitleTool.merge_bilingual_srt(paths, **kwargs):
+        for it in matched_items:
+            eng_path = it["original"]
+            zh_path = it["translated"]
+            
+            output_suffix = kwargs.get("output_suffix", ".zh&en.ass")
+            output_path = self.get_merge_output_path(eng_path, zh_path, pattern, output_suffix)
+            
+            output_folder = os.path.dirname(output_path)
+            os.makedirs(output_folder, exist_ok=True)
+            
+            base = os.path.splitext(os.path.basename(eng_path))[0]
+            success, msg = merge_srt.merge_and_save(eng_path, zh_path, output_path, base, **kwargs)
             self.app.log(msg)
-        self.app.log("任务结束")
+            if success:
+                success_count += 1
+                
+        self.app.log(f"合并任务结束: 成功 {success_count} / {len(matched_items)} 对")

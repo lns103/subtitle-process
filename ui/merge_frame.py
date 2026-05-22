@@ -488,7 +488,7 @@ class MergeFrame(ctk.CTkFrame):
         
         info = ctk.CTkLabel(
             top_info_frame, 
-            text="说明: 支持自定义特征字（仅识别文件名/文件夹名后缀，如 'zh' -> xxx.zh.srt 或 /zh/、/xxx_zh/，不识别前缀）\n选择或拖拽文件/文件夹，程序将自动进行双语字幕匹配，不匹配的字幕置顶显示为红色，可以点击 '×' 按钮移除", 
+            text="说明: 支持自定义特征字（识别文件名后缀如 'zh' -> xxx.zh.srt，或上一级文件夹名中包含且前后无字母如 /zh/、/xxx zh/、/xxx_zh/）\n选择或拖拽文件/文件夹，程序将自动进行双语字幕匹配，不匹配的字幕置顶显示为红色，可以点击 '×' 按钮移除", 
             font=self.app.font_normal, 
             justify="left",
             text_color="gray"

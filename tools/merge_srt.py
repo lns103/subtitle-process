@@ -496,14 +496,10 @@ def classify_and_match_files(file_paths, pattern):
             is_translated = True
             
         if not is_translated:
-            # Check directories: check if any directory name ends with the pattern
-            norm_path = path.replace('\\', '/').lower()
-            parts = norm_path.split('/')
-            # Check directory components (excluding drive letter and filename)
-            for p in parts[1:-1]:
-                if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', p):
-                    is_translated = True
-                    break
+            # Check parent directory name: check if pattern appears, and characters before and after are not letters
+            parent_dir = os.path.basename(os.path.dirname(path)).lower()
+            if re.search(rf'(?<![a-zA-Z]){re.escape(pattern)}(?![a-zA-Z])', parent_dir):
+                is_translated = True
                     
         if is_translated:
             translated_files.append(path)
@@ -545,7 +541,7 @@ def classify_and_match_files(file_paths, pattern):
         dir_path = os.path.dirname(os.path.abspath(filepath))
         norm = dir_path.replace('\\', '/').lower()
         parts = norm.split('/')
-        if parts and re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', parts[-1]):
+        if parts and re.search(rf'(?<![a-zA-Z]){re.escape(pattern)}(?![a-zA-Z])', parts[-1]):
             parts = parts[:-1]
         skip_folders = {"en", "eng", "english", "original", "orig", "org", "source", "src", "en-us", "en-gb", "us", "uk"}
         cleaned_parts = []

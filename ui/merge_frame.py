@@ -581,6 +581,11 @@ class MergeFrame(ctk.CTkFrame):
         self.scroll_frame = ctk.CTkScrollableFrame(list_container, fg_color="transparent")
         self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
+        if HAS_DND:
+            for widget in [self, list_container, self.scroll_frame, header_frame]:
+                widget.drop_target_register(DND_FILES)
+                widget.dnd_bind('<<Drop>>', self.on_drop_merge)
+        
         # --- Row 3: Bottom action buttons ---
         bottom_actions = ctk.CTkFrame(self, fg_color="transparent")
         bottom_actions.grid(row=3, column=0, sticky="ew", padx=5, pady=(5, 10))
@@ -785,11 +790,14 @@ class MergeFrame(ctk.CTkFrame):
             # Show a placeholder label in the scrollable frame
             placeholder = ctk.CTkLabel(
                 self.scroll_frame,
-                text="暂无待合并字幕，请选择/拖拽文件夹或文件到上方按钮中",
+                text="暂无待合并字幕，请选择/拖拽文件夹或文件到此处",
                 font=self.app.font_normal,
                 text_color="gray"
             )
             placeholder.pack(pady=40)
+            if HAS_DND:
+                placeholder.drop_target_register(DND_FILES)
+                placeholder.dnd_bind('<<Drop>>', self.on_drop_merge)
             return
             
         pattern = self.var_feature_pattern.get().strip()

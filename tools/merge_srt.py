@@ -464,6 +464,18 @@ def process_files(file_list, **kwargs):
             
     return results
 
+def parse_patterns(pattern):
+    """
+    Parse a pattern string that may contain multiple patterns separated by comma, semicolon, space, or vertical bar.
+    """
+    if not pattern:
+        return ["zh"]
+    if isinstance(pattern, list):
+        return [p.strip().lower() for p in pattern if p.strip()]
+    raw_parts = re.split(r'[,;\s|]+', pattern.strip().lower())
+    patterns = [p for p in raw_parts if p]
+    return patterns if patterns else ["zh"]
+
 def classify_and_match_files(file_paths, pattern):
     """
     根据特征/路径识别进行匹配。
@@ -474,9 +486,7 @@ def classify_and_match_files(file_paths, pattern):
       - unmatched_original: [{"path": path1, "reason": "no_match"|"multiple_matches"}]
       - unmatched_translated: [{"path": path1, "reason": "no_match"|"multiple_matches"}]
     """
-    pattern = pattern.strip().lower()
-    if not pattern:
-        pattern = "zh"
+    patterns = parse_patterns(pattern)
         
     translated_files = []
     original_files = []
@@ -492,14 +502,18 @@ def classify_and_match_files(file_paths, pattern):
         is_translated = False
         
         # Check name suffix: name_we ends with .pattern, _pattern, -pattern (with optional sub-tags) or is pattern
-        if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name_we):
-            is_translated = True
+        for p in patterns:
+            if re.search(rf'(?:[._-]|^){re.escape(p)}(?:[-_][a-zA-Z0-9]+)?$', name_we):
+                is_translated = True
+                break
             
         if not is_translated:
             # Check parent directory name: check if pattern appears, and characters before and after are not letters
             parent_dir = os.path.basename(os.path.dirname(path)).lower()
-            if re.search(rf'(?<![a-zA-Z]){re.escape(pattern)}(?![a-zA-Z])', parent_dir):
-                is_translated = True
+            for p in patterns:
+                if re.search(rf'(?<![a-zA-Z]){re.escape(p)}(?![a-zA-Z])', parent_dir):
+                    is_translated = True
+                    break
                     
         if is_translated:
             translated_files.append(path)
@@ -514,11 +528,12 @@ def classify_and_match_files(file_paths, pattern):
         if not is_trans:
             return name
         # Remove pattern suffix
-        match = re.search(rf'[._-]{re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name)
-        if match:
-            return name[:match.start()]
-        if name == pattern:
-            return ""
+        for p in patterns:
+            match = re.search(rf'[._-]{re.escape(p)}(?:[-_][a-zA-Z0-9]+)?$', name)
+            if match:
+                return name[:match.start()]
+            if name == p:
+                return ""
         return name
 
     # Group files by clean name
@@ -541,8 +556,12 @@ def classify_and_match_files(file_paths, pattern):
         dir_path = os.path.dirname(os.path.abspath(filepath))
         norm = dir_path.replace('\\', '/').lower()
         parts = norm.split('/')
-        if parts and re.search(rf'(?<![a-zA-Z]){re.escape(pattern)}(?![a-zA-Z])', parts[-1]):
-            parts = parts[:-1]
+        if parts:
+            last_part = parts[-1]
+            for p in patterns:
+                if re.search(rf'(?<![a-zA-Z]){re.escape(p)}(?![a-zA-Z])', last_part):
+                    parts = parts[:-1]
+                    break
         skip_folders = {"en", "eng", "english", "original", "orig", "org", "source", "src", "en-us", "en-gb", "us", "uk"}
         cleaned_parts = []
         for p in parts:

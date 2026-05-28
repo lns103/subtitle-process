@@ -5,6 +5,18 @@ import os
 from tools.subtitle_api import SubtitleTool
 
 try:
+    from tools.merge_srt import parse_patterns
+except ImportError:
+    def parse_patterns(pattern):
+        if not pattern:
+            return ["zh"]
+        if isinstance(pattern, list):
+            return [p.strip().lower() for p in pattern if p.strip()]
+        raw_parts = re.split(r'[,;\s|]+', pattern.strip().lower())
+        patterns = [p for p in raw_parts if p]
+        return patterns if patterns else ["zh"]
+
+try:
     from tkinterdnd2 import DND_FILES
     HAS_DND = True
 except ImportError:
@@ -717,15 +729,29 @@ class MergeFrame(ctk.CTkFrame):
             half = keep_len // 2
             return f"{name[:half]}...{name[-half:]}{ext}"
         else:
-            # If path-matched (i.e. filename itself doesn't end with pattern + optional sub-tags)
             name, ext = os.path.splitext(filename)
-            is_path_matched = not re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name.lower())
+            patterns = parse_patterns(pattern)
+            matched_pattern = patterns[0]  # default fallback
+            is_path_matched = True
+            
+            for p in patterns:
+                if re.search(rf'(?:[._-]|^){re.escape(p)}(?:[-_][a-zA-Z0-9]+)?$', name.lower()):
+                    matched_pattern = p
+                    is_path_matched = False
+                    break
             
             if is_path_matched:
-                display_name = f"{pattern}/{filename}"
+                parent_dir = os.path.basename(os.path.dirname(filepath)).lower()
+                for p in patterns:
+                    if re.search(rf'(?<![a-zA-Z]){re.escape(p)}(?![a-zA-Z])', parent_dir):
+                        matched_pattern = p
+                        break
+            
+            if is_path_matched:
+                display_name = f"{matched_pattern}/{filename}"
                 if len(display_name) <= max_len:
                     return display_name
-                prefix = f"{pattern}/"
+                prefix = f"{matched_pattern}/"
                 keep_len = max_len - len(prefix) - len(ext) - 3
                 if keep_len <= 0:
                     return display_name[:max_len]
@@ -734,7 +760,7 @@ class MergeFrame(ctk.CTkFrame):
             else:
                 if len(filename) <= max_len:
                     return filename
-                match = re.search(rf'[._-]{re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', name, re.IGNORECASE)
+                match = re.search(rf'[._-]{re.escape(matched_pattern)}(?:[-_][a-zA-Z0-9]+)?$', name, re.IGNORECASE)
                 if match:
                     suffix = match.group(0) + ext
                     base_name = name[:match.start()]
@@ -913,8 +939,11 @@ class MergeFrame(ctk.CTkFrame):
         parts = trans_norm.split('/')
         if parts:
             last_part = parts[-1]
-            if re.search(rf'(?:[._-]|^){re.escape(pattern)}(?:[-_][a-zA-Z0-9]+)?$', last_part.lower()):
-                trans_parent = '/'.join(parts[:-1])
+            patterns = parse_patterns(pattern)
+            for p in patterns:
+                if re.search(rf'(?:[._-]|^){re.escape(p)}(?:[-_][a-zA-Z0-9]+)?$', last_part.lower()):
+                    trans_parent = '/'.join(parts[:-1])
+                    break
                 
         if trans_parent.lower() == orig_norm.lower():
             # Same path family, output to orig_dir/merge

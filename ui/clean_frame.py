@@ -18,6 +18,7 @@ class CleanFrame(ctk.CTkFrame):
 
         # 选项
         self.clean_skip_merge_var = ctk.BooleanVar(value=False)
+        self.clean_uppercase_var = ctk.BooleanVar(value=False)
 
         # 统一网格区域 (按钮 + 拖拽)
         grid_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -39,8 +40,14 @@ class CleanFrame(ctk.CTkFrame):
         col0_frame.grid_rowconfigure(1, weight=1) # DND expands
         col0_frame.grid_columnconfigure(0, weight=1)
         
-        chk = ctk.CTkCheckBox(col0_frame, text="跳过合并短字幕", variable=self.clean_skip_merge_var, font=self.app.font_normal)
-        chk.grid(row=0, column=0, pady=(0, 5), sticky="w")
+        config_subframe = ctk.CTkFrame(col0_frame, fg_color="transparent")
+        config_subframe.grid(row=0, column=0, pady=(0, 5), sticky="w")
+
+        chk = ctk.CTkCheckBox(config_subframe, text="跳过合并短字幕", variable=self.clean_skip_merge_var, font=self.app.font_normal)
+        chk.pack(anchor="w", pady=(0, 2))
+
+        chk_upper = ctk.CTkCheckBox(config_subframe, text="清理大写行", variable=self.clean_uppercase_var, font=self.app.font_normal)
+        chk_upper.pack(anchor="w", pady=(2, 0))
         
         self.dnd_clean = ctk.CTkFrame(col0_frame, border_width=2, border_color="gray")
         self.dnd_clean.grid(row=1, column=0, sticky="nsew")
@@ -120,7 +127,7 @@ class CleanFrame(ctk.CTkFrame):
         if SubtitleTool is None:
             self.app.log("Error: SubtitleTool not loaded.")
             return
-        for msg in SubtitleTool.clean_srt(paths, skip_merge=self.clean_skip_merge_var.get()):
+        for msg in SubtitleTool.clean_srt(paths, skip_merge=self.clean_skip_merge_var.get(), clean_uppercase=self.clean_uppercase_var.get()):
             self.app.log(msg)
         self.app.log("任务结束")
 

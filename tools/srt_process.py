@@ -67,7 +67,7 @@ def merge_subtitles(blocks):
     return merged_blocks, merge_count
 
 
-def process_subtitles_content(content, skip_merge=False, clean_uppercase=False):
+def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, clean_person=True):
     """处理字幕内容字符串"""
     blocks = re.split(r'\n\s*\n', content.strip())  # 以空行分割字幕块
     processed_blocks = []
@@ -110,12 +110,12 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False):
             text_lines = new_text_lines
 
         # 合并所有文本行为一个字符串，方便统一处理括号内容（包括跨行括号）
-        text = ' '.join(text_lines)
+        text = '\n'.join(text_lines)
         
         # 移除所有括号内容（包括跨行的）
         # 统计移除数量
-        text, n1 = re.subn(r'\(.*?\)', '', text)
-        text, n2 = re.subn(r'\[.*?\]', '', text)
+        text, n1 = re.subn(r'\(.*?\)', '', text, flags=re.DOTALL)
+        text, n2 = re.subn(r'\[.*?\]', '', text, flags=re.DOTALL)
         stats["brackets"] += (n1 + n2)
 
         # 如果删完只剩 -，就跳过
@@ -123,8 +123,23 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False):
             continue
         
         # 移除字幕中人物提示 (例如 "BEN:" 开头的标识)
-        text, n = re.subn(r'^\s*[A-Z]+:\s*', '', text)
-        stats["person_hints"] += n
+        if clean_person:
+            lines = text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                line_stripped = line.strip()
+                if not line_stripped:
+                    continue
+                pattern = r'^(\s*-\s*)?((?=.*[A-Z])[A-Z0-9\s#\.\-_&\'/,\+\u00A0]{1,30})\s*[:：]\s*'
+                new_line, count = re.subn(pattern, r'\1', line_stripped)
+                if count > 0:
+                    stats["person_hints"] += count
+                    cleaned_lines.append(new_line)
+                else:
+                    cleaned_lines.append(line_stripped)
+            text = ' '.join(cleaned_lines)
+        else:
+            text = text.replace('\n', ' ')
         
         # 统计破折号 `- ` 出现次数，仅开头出现一次时移除
         dash_count = text.count('- ')
@@ -166,7 +181,7 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False):
 
     return '\n'.join(output_lines).strip(), stats
 
-def process_single_file(file_path, skip_merge=False, clean_uppercase=False):
+def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clean_person=True):
     """处理单个文件"""
     try:
         original_path = file_path
@@ -185,7 +200,7 @@ def process_single_file(file_path, skip_merge=False, clean_uppercase=False):
         with open(file_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
         
-        processed_content, stats = process_subtitles_content(content, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+        processed_content, stats = process_subtitles_content(content, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
         
         with open(file_path, 'w', encoding='utf-8', newline="\n") as f:
             f.write(processed_content)
@@ -208,22 +223,22 @@ def process_single_file(file_path, skip_merge=False, clean_uppercase=False):
         print(f"处理失败 {file_path}: {e}")
         return False, f"处理失败 {os.path.basename(file_path)}: {e}"
 
-def process_directory(directory, skip_merge=False, clean_uppercase=False):
+def process_directory(directory, skip_merge=False, clean_uppercase=False, clean_person=True):
     """处理目录下的所有 srt 文件"""
     results = []
     for filename in os.listdir(directory):
         if filename.lower().endswith(".srt") or filename.lower().endswith(".vtt"): 
             file_path = os.path.join(directory, filename)
-            success, msg = process_single_file(file_path, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+            success, msg = process_single_file(file_path, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
             results.append(msg)
     return results
 
 def main():
     # 支持可选参数 --skip 来跳过字幕块合并操作
-    # 以及 --clean-uppercase
+    # 以及 --clean-uppercase 和 --no-clean-person
     args = sys.argv[1:]
     if not args:
-        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase]")
+        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person]")
         sys.exit(1)
 
     skip_merge = False
@@ -236,8 +251,13 @@ def main():
         clean_uppercase = True
         args = [a for a in args if a != '--clean-uppercase']
 
+    clean_person = True
+    if '--no-clean-person' in args:
+        clean_person = False
+        args = [a for a in args if a != '--no-clean-person']
+
     if not args:
-        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase]")
+        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person]")
         sys.exit(1)
 
     directory = args[0]
@@ -245,7 +265,7 @@ def main():
         print("错误: 目录不存在")
         sys.exit(1)
     
-    process_directory(directory, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+    process_directory(directory, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
     print("所有字幕处理完成！")
 
 if __name__ == '__main__':

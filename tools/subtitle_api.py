@@ -29,18 +29,19 @@ class SubtitleTool:
     """
 
     @staticmethod
-    def clean_srt(paths, skip_merge=False, clean_uppercase=False):
+    def clean_srt(paths, skip_merge=False, clean_uppercase=False, clean_person=True):
         """
         清理 SRT 字幕 (去除多余标点、合并短句等)
         :param paths: 文件路径列表或目录路径
         :param skip_merge: 是否跳过合并字幕块
         :param clean_uppercase: 是否清理全大写行
+        :param clean_person: 是否清理人名提示
         :return: Generator yielding result messages
         """
         if isinstance(paths, str):
             if os.path.isdir(paths):
                 # 处理目录
-                results = srt_process.process_directory(paths, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+                results = srt_process.process_directory(paths, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
                 for msg in results:
                     yield msg
                 return
@@ -49,11 +50,11 @@ class SubtitleTool:
         
         for p in paths:
             if os.path.isdir(p):
-                 results = srt_process.process_directory(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+                 results = srt_process.process_directory(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
                  for msg in results:
                     yield msg
             elif os.path.isfile(p):
-                success, msg = srt_process.process_single_file(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase)
+                success, msg = srt_process.process_single_file(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
                 yield msg
 
     @staticmethod

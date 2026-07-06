@@ -19,6 +19,7 @@ class CleanFrame(ctk.CTkFrame):
         # 选项
         self.clean_skip_merge_var = ctk.BooleanVar(value=False)
         self.clean_uppercase_var = ctk.BooleanVar(value=False)
+        self.clean_person_var = ctk.BooleanVar(value=True)
 
         # 统一网格区域 (按钮 + 拖拽)
         grid_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -47,7 +48,10 @@ class CleanFrame(ctk.CTkFrame):
         chk.pack(anchor="w", pady=(0, 2))
 
         chk_upper = ctk.CTkCheckBox(config_subframe, text="清理大写行", variable=self.clean_uppercase_var, font=self.app.font_normal)
-        chk_upper.pack(anchor="w", pady=(2, 0))
+        chk_upper.pack(anchor="w", pady=(2, 2))
+        
+        chk_person = ctk.CTkCheckBox(config_subframe, text="清理人名提示", variable=self.clean_person_var, font=self.app.font_normal)
+        chk_person.pack(anchor="w", pady=(2, 0))
         
         self.dnd_clean = ctk.CTkFrame(col0_frame, border_width=2, border_color="gray")
         self.dnd_clean.grid(row=1, column=0, sticky="nsew")
@@ -127,7 +131,7 @@ class CleanFrame(ctk.CTkFrame):
         if SubtitleTool is None:
             self.app.log("Error: SubtitleTool not loaded.")
             return
-        for msg in SubtitleTool.clean_srt(paths, skip_merge=self.clean_skip_merge_var.get(), clean_uppercase=self.clean_uppercase_var.get()):
+        for msg in SubtitleTool.clean_srt(paths, skip_merge=self.clean_skip_merge_var.get(), clean_uppercase=self.clean_uppercase_var.get(), clean_person=self.clean_person_var.get()):
             self.app.log(msg)
         self.app.log("任务结束")
 

@@ -3,6 +3,14 @@ import threading
 import re
 import os
 from tools.subtitle_api import SubtitleTool
+try:
+    from tools.path_utils import normalize_path, normalize_paths
+except ImportError:
+    try:
+        from path_utils import normalize_path, normalize_paths
+    except ImportError:
+        def normalize_path(p): return os.path.abspath(p) if p else p
+        def normalize_paths(ps): return [normalize_path(p) for p in ps] if ps else []
 
 try:
     from tools.merge_srt import parse_patterns
@@ -654,6 +662,7 @@ class MergeFrame(ctk.CTkFrame):
                 self.add_loaded_paths([path])
 
     def add_loaded_paths(self, paths):
+        paths = normalize_paths(paths)
         # Scan folders recursively to find all .srt files
         all_srts = []
         for p in paths:

@@ -19,6 +19,15 @@ except ImportError as e:
     print(f"Error importing tools: {e}")
     SubtitleTool = None
 
+try:
+    from tools.path_utils import normalize_path, normalize_paths
+except ImportError:
+    try:
+        from path_utils import normalize_path, normalize_paths
+    except ImportError:
+        def normalize_path(p): return os.path.abspath(p) if p else p
+        def normalize_paths(ps): return [normalize_path(p) for p in ps] if ps else []
+
 # 尝试导入 TkinterDnD 用于拖拽
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -191,17 +200,18 @@ class App(CTk):
     def select_file(self, var):
         path = filedialog.askopenfilename()
         if path:
-            var.set(path)
+            norm_p = normalize_path(path)
+            var.set(norm_p)
 
     def get_paths(self, kind="any"):
         # 弹窗询问选择文件还是文件夹 (Tkinter没有混合选择)
         # 这里简化：如果kind是folder则只选folder，否则选文件
         if kind == "folder":
             p = filedialog.askdirectory()
-            return [p] if p else []
+            return normalize_paths([p]) if p else []
         else:
              p = filedialog.askopenfilenames()
-             return list(p) if p else []
+             return normalize_paths(list(p)) if p else []
 
     def parse_drop_files(self, data):
         if not data:
@@ -212,7 +222,8 @@ class App(CTk):
         # Regex matches: {path with spaces} OR non_space_path
         # Note: This handles "{A} {B}", "A B", "{A} B", etc.
         matches = re.findall(r'\{(.+?)\}|(\S+)', data)
-        return [m[0] if m[0] else m[1] for m in matches]
+        raw_files = [m[0] if m[0] else m[1] for m in matches]
+        return normalize_paths(raw_files)
 
     def run_task(self, task_func):
         threading.Thread(target=task_func).start()

@@ -12,6 +12,7 @@ try:
     from . import subtitle_extractor
     from . import fps_converter
     from . import time_shifter
+    from .path_utils import normalize_path, normalize_paths
 except ImportError:
     import srt_process
     import merge_srt
@@ -22,6 +23,7 @@ except ImportError:
     import subtitle_extractor
     import fps_converter
     import time_shifter
+    from path_utils import normalize_path, normalize_paths
 
 class SubtitleTool:
     """
@@ -38,15 +40,7 @@ class SubtitleTool:
         :param clean_person: 是否清理人名提示
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            if os.path.isdir(paths):
-                # 处理目录
-                results = srt_process.process_directory(paths, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
-                for msg in results:
-                    yield msg
-                return
-            else:
-                paths = [paths]
+        paths = normalize_paths(paths)
         
         for p in paths:
             if os.path.isdir(p):
@@ -64,8 +58,7 @@ class SubtitleTool:
         :param paths: 文件路径列表
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            paths = [paths]
+        paths = normalize_paths(paths)
         
         for p in paths:
             if os.path.isdir(p):
@@ -87,8 +80,7 @@ class SubtitleTool:
         :param pattern: 匹配特征字，例如 'zh'
         :return: (matched_pairs, unmatched_original, unmatched_translated)
         """
-        if isinstance(paths, str):
-            paths = [paths]
+        paths = normalize_paths(paths)
             
         # Find all .srt files recursively
         all_files = []
@@ -119,13 +111,7 @@ class SubtitleTool:
         :param paths: 文件夹路径或文件路径列表
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            if os.path.isdir(paths):
-                # 兼容旧调用 (虽然后面我们会改 UI，但保持健壮性)
-                 paths = [paths]
-            else:
-                 # 单个文件
-                 paths = [paths]
+        paths = normalize_paths(paths)
                  
         # 分离目录和文件
         dirs = set()
@@ -156,11 +142,7 @@ class SubtitleTool:
         :param suffix: 附加到文件名的自定义后缀
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            if os.path.isdir(paths):
-                paths = [paths]
-            else:
-                paths = [paths]
+        paths = normalize_paths(paths)
 
         # 分离目录和文件
         dirs = set()
@@ -189,8 +171,7 @@ class SubtitleTool:
         :param target_res: 目标分辨率
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            paths = [paths]
+        paths = normalize_paths(paths)
             
         for p in paths:
             if os.path.isdir(p):
@@ -210,6 +191,7 @@ class SubtitleTool:
         """
         获取视频字幕信息
         """
+        filepath = normalize_path(filepath)
         return subtitle_extractor.SubtitleExtractor.get_media_info(filepath)
 
     @staticmethod
@@ -224,6 +206,7 @@ class SubtitleTool:
         """
         提取字幕 (生成器)
         """
+        filepath = normalize_path(filepath)
         for msg in subtitle_extractor.SubtitleExtractor.extract_subtitles_v2(filepath, selected_subs, total_duration=total_duration):
             yield msg
 
@@ -236,11 +219,7 @@ class SubtitleTool:
         :param dst_fps: 目标帧率
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            if os.path.isdir(paths):
-                paths = [paths]
-            else:
-                paths = [paths]
+        paths = normalize_paths(paths)
                 
         dirs = set()
         files = []
@@ -270,11 +249,7 @@ class SubtitleTool:
         :param offset: 时间偏移量(秒)
         :return: Generator yielding result messages
         """
-        if isinstance(paths, str):
-            if os.path.isdir(paths):
-                paths = [paths]
-            else:
-                paths = [paths]
+        paths = normalize_paths(paths)
                 
         dirs = set()
         files = []

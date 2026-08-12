@@ -4,6 +4,9 @@
 
 ## 0.9.6-beta
 
+### 工程改进
+- **uv 包管理迁移**：使用 [uv](https://docs.astral.sh/uv/) 替代 `pip` + `requirements.txt` 进行依赖管理，新增 `pyproject.toml` 与 `uv.lock` 锁定依赖版本，支持 `uv sync` 一键创建虚拟环境。
+
 ### 功能改进
 - **路径规范化与短路径自动还原**：
     * **8.3 短路径自动还原**：集成 Windows Kernel32 API 自动检测与还原逻辑，自动将 Windows 自动生成的 DOS 8.3 格式压缩短路径（如 `NOONEW~1.265\NOONEW~3.SRT`）恢复为原始完整长路径。

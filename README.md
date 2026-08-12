@@ -45,23 +45,25 @@
 ## 安装与运行
 
 ### 依赖安装
-请确保已安装 Python 3.x，然后安装依赖库：
+本项目使用 [uv](https://docs.astral.sh/uv/) 管理依赖。请确保已安装 uv 和 Python 3.9+，然后同步依赖并创建虚拟环境：
 
 ```bash
-pip install customtkinter tkinterdnd2-universal
+uv sync
 ```
+
+> 依赖锁定在 `uv.lock`，版本与元数据定义在 `pyproject.toml`。
 
 ### 运行
 运行主程序：
 
 ```bash
-python app_ui.py
+uv run python app_ui.py
 ```
 
 ### 打包 (PyInstaller)
 如果需要打包为独立 exe 文件，请运行以下命令：
 ```bash
-pyinstaller --noconsole --onefile app_ui.py
+uv run pyinstaller --noconsole --onefile app_ui.py
 ```
 
 ## 使用说明

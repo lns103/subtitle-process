@@ -7,6 +7,7 @@
 ### 工程改进
 - **uv 包管理迁移**：使用 [uv](https://docs.astral.sh/uv/) 替代 `pip` + `requirements.txt` 进行依赖管理，新增 `pyproject.toml` 与 `uv.lock` 锁定依赖版本，支持 `uv sync` 一键创建虚拟环境。
 - **CI 迁移至 uv**：GitHub Actions (`build.yml` / `release.yml`) 改用 `astral-sh/setup-uv` + `uv sync` 安装依赖，`pyinstaller` 加入 `dev` 依赖组，打包命令改为 `uv run pyinstaller`。
+- **CI 修复 Node 20 弃用警告**：升级 Actions 至基于 Node 24 的版本 (`actions/checkout@v7`, `actions/upload-artifact@v7`, `astral-sh/setup-uv@v9.0.0`)。
 
 ### 功能改进
 - **路径规范化与短路径自动还原**：

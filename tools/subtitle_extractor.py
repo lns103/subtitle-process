@@ -200,7 +200,7 @@ class SubtitleExtractor:
             print(f"Error executing mkvmerge: {e}")
 
     @staticmethod
-    def run_mkvextract(filepath, subs, output_dir):
+    def run_mkvextract(filepath, subs, output_dir, single_track=False):
         """
         Batch extract using mkvextract
         """
@@ -233,7 +233,10 @@ class SubtitleExtractor:
             elif "vobsub" in codec:
                 ext = "idx" 
             
-            out_filename = f"{base_name}.{lang}.{idx}.{ext}"
+            if single_track:
+                out_filename = f"{base_name}.{ext}"
+            else:
+                out_filename = f"{base_name}.{lang}.{idx}.{ext}"
             out_path = os.path.join(output_dir, out_filename)
             
             args.append(f"{idx}:{out_path}")
@@ -297,6 +300,8 @@ class SubtitleExtractor:
         mkv_subs = []
         ffmpeg_subs = []
         
+        single_track = len(selected_subs) == 1
+        
         for sub in selected_subs:
             # Use mkvextract if flagged or if codec is missing (though enrichment should have fixed it, maybe codec still unknown)
             if sub.get("use_mkvextract"):
@@ -306,15 +311,19 @@ class SubtitleExtractor:
         
         # 1. mkvextract tasks
         if mkv_subs:
-            yield from SubtitleExtractor.run_mkvextract(filepath, mkv_subs, output_dir)
+            yield from SubtitleExtractor.run_mkvextract(filepath, mkv_subs, output_dir, single_track=single_track)
             
             for sub in mkv_subs:
                 codec = sub.get("codec_name", "").lower()
                 if ("webvtt" in codec or "vtt" in codec) and sub.get("convert_vtt_to_srt", False):
                     idx = sub["index"]
                     lang = sub.get("language", "und")
-                    vtt_tmp_filename = f"{base_name}.{lang}.{idx}.vtt.tmp"
-                    srt_filename = f"{base_name}.{lang}.{idx}.srt"
+                    if single_track:
+                        vtt_tmp_filename = f"{base_name}.vtt.tmp"
+                        srt_filename = f"{base_name}.srt"
+                    else:
+                        vtt_tmp_filename = f"{base_name}.{lang}.{idx}.vtt.tmp"
+                        srt_filename = f"{base_name}.{lang}.{idx}.srt"
                     vtt_tmp_path = os.path.join(output_dir, vtt_tmp_filename)
                     srt_path = os.path.join(output_dir, srt_filename)
                     
@@ -359,7 +368,10 @@ class SubtitleExtractor:
                     elif "pgs" in codec_lower or "dvd" in codec_lower:
                         ext = "sup"
                 
-                out_filename = f"{base_name}.{lang}.{idx}.{ext}"
+                if single_track:
+                    out_filename = f"{base_name}.{ext}"
+                else:
+                    out_filename = f"{base_name}.{lang}.{idx}.{ext}"
                 out_path = os.path.join(output_dir, out_filename)
                 
                 cmd.extend(["-map", f"0:{idx}", out_path])

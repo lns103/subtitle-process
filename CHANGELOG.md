@@ -2,7 +2,7 @@
 
 所有针对当前软件功能和 UI 界面的重要更改都会记录在此文件中。
 
-## 0.9.6-beta
+## 0.9.6
 
 ### 工程改进
 - **uv 包管理迁移**：使用 [uv](https://docs.astral.sh/uv/) 替代 `pip` + `requirements.txt` 进行依赖管理，新增 `pyproject.toml` 与 `uv.lock` 锁定依赖版本，支持 `uv sync` 一键创建虚拟环境。

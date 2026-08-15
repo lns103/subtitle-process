@@ -63,7 +63,7 @@ uv run python app_ui.py
 ### 打包 (PyInstaller)
 如果需要打包为独立 exe 文件，请运行以下命令：
 ```bash
-uv run pyinstaller --noconsole --onefile app_ui.py
+uv run pyinstaller --noconsole --onefile app_ui.py --name SubtitleProcess
 ```
 
 ## 使用说明

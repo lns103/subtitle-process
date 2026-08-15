@@ -1,6 +1,6 @@
 [project]
 name = "subtitle-process"
-version = "0.9.6"
+version = "0.9.7-beta"
 description = "基于 Python 和 CustomTkinter 开发的本地字幕处理工具箱"
 readme = "README.md"
 requires-python = ">=3.9"

@@ -109,9 +109,44 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, 
                 new_text_lines.append(processed_line)
             text_lines = new_text_lines
 
-        # 合并所有文本行为一个字符串，方便统一处理括号内容（包括跨行括号）
-        text = '\n'.join(text_lines)
-        
+        # 人名提示识别正则：
+        # 1. 冒号前被 [] 或 () 包裹的人名，例如 [BEN]:, [Ben]:, (John):, (Doctor Smith):
+        # 2. 冒号前为全大写/含大写的多词名称，例如 OLD MAN:, MAN #1:
+        # 3. 冒号前为单个单词，例如 Ben:, Alice:, Doctor:, 旁白:
+        # 4. 支持行首破折号（保留）以及行内破折号后的提示
+        speaker_pattern = re.compile(
+            r'(^(\s*-\s*)?|\s+-\s+)'
+            r'(?:'
+                r'\[[^\]\r\n]{1,40}\]'
+                r'|\([^)\r\n]{1,40}\)'
+                r'|(?=.*[A-Z])[A-Z0-9\s#\.\-_&\'/,\+\u00A0]{1,30}'
+                r'|(?!\d+$)[^\s:：]{1,30}'
+            r')'
+            r'\s*[:：](?!\d|//)\s*'
+        )
+
+        def _clean_person_in_lines(lines_list):
+            nonlocal stats
+            res_lines = []
+            for l in lines_list:
+                l_stripped = l.strip()
+                if not l_stripped:
+                    continue
+                new_l, count = speaker_pattern.subn(r'\1', l_stripped)
+                if count > 0:
+                    stats["person_hints"] += count
+                    res_lines.append(new_l)
+                else:
+                    res_lines.append(l_stripped)
+            return res_lines
+
+        # 如果开启了 clean_person，优先在行级别清理人名提示（防止带括号的人名如 [BEN]: 中的括号被提前删除留下孤立冒号）
+        if clean_person:
+            cleaned_lines = _clean_person_in_lines(text_lines)
+            text = '\n'.join(cleaned_lines)
+        else:
+            text = '\n'.join(text_lines)
+
         # 移除所有括号内容（包括跨行的）
         # 统计移除数量
         text, n1 = re.subn(r'\(.*?\)', '', text, flags=re.DOTALL)
@@ -121,22 +156,11 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, 
         # 如果删完只剩 -，就跳过
         if text.strip() in ('-', '-'):
             continue
-        
-        # 移除字幕中人物提示 (例如 "BEN:" 开头的标识)
+
+        # 如果在括号移除后（如 "(music) Ben: Hello" 或 "MAN (on TV): Hello"），暴露出新的人名提示，进行二次清理
         if clean_person:
             lines = text.split('\n')
-            cleaned_lines = []
-            for line in lines:
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-                pattern = r'^(\s*-\s*)?((?=.*[A-Z])[A-Z0-9\s#\.\-_&\'/,\+\u00A0]{1,30})\s*[:：]\s*'
-                new_line, count = re.subn(pattern, r'\1', line_stripped)
-                if count > 0:
-                    stats["person_hints"] += count
-                    cleaned_lines.append(new_line)
-                else:
-                    cleaned_lines.append(line_stripped)
+            cleaned_lines = _clean_person_in_lines(lines)
             text = ' '.join(cleaned_lines)
         else:
             text = text.replace('\n', ' ')

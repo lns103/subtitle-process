@@ -4,6 +4,48 @@ import os
 import subprocess
 
 MAX_SUBTITLE_LENGTH = 95  # 最大字幕长度
+IDENTICAL_MERGE_GAP = 1.0  # 相同字幕行合并的最大时间间隔（秒）
+
+def _parse_timestamp(timestamp):
+    """将字幕时间戳字符串解析为秒数"""
+    match = re.search(r'(\d{2}):(\d{2}):(\d{2}),(\d{3})', timestamp)
+    if not match:
+        return None
+    return (
+        int(match.group(1)) * 3600 +
+        int(match.group(2)) * 60 +
+        int(match.group(3)) +
+        int(match.group(4)) / 1000
+    )
+
+def merge_identical_subtitles(blocks, max_gap=IDENTICAL_MERGE_GAP):
+    """合并文本完全相同且时间间隔在 max_gap 内的相邻字幕块"""
+    if not blocks:
+        return [], 0
+
+    merged_blocks = []
+    merge_count = 0
+    current_timestamp, current_text = blocks[0]
+
+    for next_timestamp, next_text in blocks[1:]:
+        current_end_time = _parse_timestamp(current_timestamp.split(' --> ')[-1])
+        next_start_time = _parse_timestamp(next_timestamp.split(' --> ')[0])
+
+        if (current_text.strip() == next_text.strip() and
+                current_end_time is not None and next_start_time is not None and
+                (next_start_time - current_end_time) <= max_gap):
+            current_parts = current_timestamp.split()
+            next_parts = next_timestamp.split()
+            if len(current_parts) >= 3 and len(next_parts) >= 3:
+                current_timestamp = f"{current_parts[0]} --> {next_parts[2]}"
+            merge_count += 1
+        else:
+            merged_blocks.append((current_timestamp, current_text))
+            current_timestamp, current_text = next_timestamp, next_text
+
+    merged_blocks.append((current_timestamp, current_text))
+    return merged_blocks, merge_count
+
 
 def merge_subtitles(blocks):
     """合并短字幕块"""
@@ -67,12 +109,12 @@ def merge_subtitles(blocks):
     return merged_blocks, merge_count
 
 
-def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, clean_person=True):
+def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, clean_person=True, merge_identical=False):
     """处理字幕内容字符串"""
     blocks = re.split(r'\n\s*\n', content.strip())  # 以空行分割字幕块
     processed_blocks = []
     
-    stats = {"brackets": 0, "person_hints": 0, "tags": 0, "merged": 0, "uppercase": 0}
+    stats = {"brackets": 0, "person_hints": 0, "tags": 0, "merged": 0, "uppercase": 0, "identical": 0}
     
     for block in blocks:
         lines = block.splitlines()
@@ -195,6 +237,10 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, 
     else:
         merged_blocks, merged_count = merge_subtitles(processed_blocks)
         stats["merged"] = merged_count
+
+    if merge_identical:
+        merged_blocks, identical_count = merge_identical_subtitles(merged_blocks)
+        stats["identical"] = identical_count
     
     output_lines = []
     for i, (timestamp, text) in enumerate(merged_blocks, start=1):
@@ -205,7 +251,7 @@ def process_subtitles_content(content, skip_merge=False, clean_uppercase=False, 
 
     return '\n'.join(output_lines).strip(), stats
 
-def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clean_person=True):
+def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clean_person=True, merge_identical=False):
     """处理单个文件"""
     try:
         original_path = file_path
@@ -224,7 +270,7 @@ def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clea
         with open(file_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
         
-        processed_content, stats = process_subtitles_content(content, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
+        processed_content, stats = process_subtitles_content(content, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person, merge_identical=merge_identical)
         
         with open(file_path, 'w', encoding='utf-8', newline="\n") as f:
             f.write(processed_content)
@@ -236,6 +282,7 @@ def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clea
         if stats['person_hints'] > 0: stats_str_parts.append(f"人物-{stats['person_hints']}")
         if stats['tags'] > 0: stats_str_parts.append(f"标签-{stats['tags']}")
         if stats['merged'] > 0: stats_str_parts.append(f"合并-{stats['merged']}")
+        if stats.get('identical', 0) > 0: stats_str_parts.append(f"相同行合并-{stats['identical']}")
         if 'uppercase' in stats and stats['uppercase'] > 0: stats_str_parts.append(f"大写行-{stats['uppercase']}")
         
         stats_msg = f" ({', '.join(stats_str_parts)})" if stats_str_parts else ""
@@ -247,13 +294,13 @@ def process_single_file(file_path, skip_merge=False, clean_uppercase=False, clea
         print(f"处理失败 {file_path}: {e}")
         return False, f"处理失败 {os.path.basename(file_path)}: {e}"
 
-def process_directory(directory, skip_merge=False, clean_uppercase=False, clean_person=True):
+def process_directory(directory, skip_merge=False, clean_uppercase=False, clean_person=True, merge_identical=False):
     """处理目录下的所有 srt 文件"""
     results = []
     for filename in os.listdir(directory):
         if filename.lower().endswith(".srt") or filename.lower().endswith(".vtt"): 
             file_path = os.path.join(directory, filename)
-            success, msg = process_single_file(file_path, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
+            success, msg = process_single_file(file_path, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person, merge_identical=merge_identical)
             results.append(msg)
     return results
 
@@ -262,7 +309,7 @@ def main():
     # 以及 --clean-uppercase 和 --no-clean-person
     args = sys.argv[1:]
     if not args:
-        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person]")
+        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person] [--merge-identical]")
         sys.exit(1)
 
     skip_merge = False
@@ -280,8 +327,13 @@ def main():
         clean_person = False
         args = [a for a in args if a != '--no-clean-person']
 
+    merge_identical = False
+    if '--merge-identical' in args:
+        merge_identical = True
+        args = [a for a in args if a != '--merge-identical']
+
     if not args:
-        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person]")
+        print("Usage: python srt_process.py <directory> [--skip] [--clean-uppercase] [--no-clean-person] [--merge-identical]")
         sys.exit(1)
 
     directory = args[0]
@@ -289,7 +341,7 @@ def main():
         print("错误: 目录不存在")
         sys.exit(1)
     
-    process_directory(directory, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
+    process_directory(directory, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person, merge_identical=merge_identical)
     print("所有字幕处理完成！")
 
 if __name__ == '__main__':

@@ -31,24 +31,25 @@ class SubtitleTool:
     """
 
     @staticmethod
-    def clean_srt(paths, skip_merge=False, clean_uppercase=False, clean_person=True):
+    def clean_srt(paths, skip_merge=False, clean_uppercase=False, clean_person=True, merge_identical=False):
         """
         清理 SRT 字幕 (去除多余标点、合并短句等)
         :param paths: 文件路径列表或目录路径
         :param skip_merge: 是否跳过合并字幕块
         :param clean_uppercase: 是否清理全大写行
         :param clean_person: 是否清理人名提示
+        :param merge_identical: 是否合并文本相同且时间间隔在1秒内的相邻字幕块
         :return: Generator yielding result messages
         """
         paths = normalize_paths(paths)
         
         for p in paths:
             if os.path.isdir(p):
-                 results = srt_process.process_directory(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
+                 results = srt_process.process_directory(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person, merge_identical=merge_identical)
                  for msg in results:
                     yield msg
             elif os.path.isfile(p):
-                success, msg = srt_process.process_single_file(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person)
+                success, msg = srt_process.process_single_file(p, skip_merge=skip_merge, clean_uppercase=clean_uppercase, clean_person=clean_person, merge_identical=merge_identical)
                 yield msg
 
     @staticmethod

@@ -13,6 +13,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller",
+    # >=2026.7 修复 tkinterdnd2 在 Tcl 9（Python 3.14）下打包后加载 tkdnd 失败的问题
+    "pyinstaller-hooks-contrib>=2026.7",
 ]
 
 [tool.uv]

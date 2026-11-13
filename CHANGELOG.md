@@ -4,6 +4,10 @@
 
 ## 0.9.7-beta
 
+### 工程改进
+- **升级至 Python 3.15**：`requires-python` 提升至 `>=3.15`，CI (`build.yml` / `release.yml`) 构建环境改用 Python 3.15（内置 Tcl/Tk 9.0）。已验证依赖解析、GUI 启动与 PyInstaller 打包产物在 3.15.2 上正常运行，拖拽（tkdnd）可用。同步精简 `uv.lock`：移除仅 Python < 3.10 需要的 `importlib-metadata` / `zipp` 及对应的版本分支标记。
+- **依赖全部升级至最新**：`tkinterdnd2 0.6.2 → 0.7.0`、`pyinstaller 6.22.0 → 6.22.3`、`pyinstaller-hooks-contrib 2026.7 → 2026.10`、`setuptools 84.0.0 → 84.2.1`（`customtkinter 6.0.0`、`packaging 26.3`、`darkdetect 0.8.0` 等已是最新）。已验证 GUI 启动与打包产物的拖拽功能正常。
+
 ### 功能改进
 - **字幕清理**：
     * **人名识别范围扩展**：优化单单词识别（如 `Ben:`、`Doctor:`、`旁白:`），支持被 `[]` 或 `()` 包裹的说话人提示（如 `[BEN]:`、`(John):`、`[Old Man]:`），优先处理人名以避免括号清除导致冒号残留。

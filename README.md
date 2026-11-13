@@ -45,7 +45,7 @@
 ## 安装与运行
 
 ### 依赖安装
-本项目使用 [uv](https://docs.astral.sh/uv/) 管理依赖。请确保已安装 uv 和 Python 3.9+，然后同步依赖并创建虚拟环境：
+本项目使用 [uv](https://docs.astral.sh/uv/) 管理依赖。请确保已安装 uv 和 Python 3.15+，然后同步依赖并创建虚拟环境：
 
 ```bash
 uv sync

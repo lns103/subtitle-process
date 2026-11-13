@@ -2,7 +2,7 @@
 
 所有针对当前软件功能和 UI 界面的重要更改都会记录在此文件中。
 
-## 0.9.7-beta
+## 0.9.7
 
 ### 工程改进
 - **升级至 Python 3.15**：`requires-python` 提升至 `>=3.15`，CI (`build.yml` / `release.yml`) 构建环境改用 Python 3.15（内置 Tcl/Tk 9.0）。已验证依赖解析、GUI 启动与 PyInstaller 打包产物在 3.15.2 上正常运行，拖拽（tkdnd）可用。同步精简 `uv.lock`：移除仅 Python < 3.10 需要的 `importlib-metadata` / `zipp` 及对应的版本分支标记。

@@ -4,6 +4,16 @@
 
 ## Unreleased — Pipeline v2
 
+### M3 项目与配方
+
+#### 新增
+- **项目工作区与状态机**：`core/projects.py` 提供 `ProjectManager`，按 `<data_dir>/projects/<prj_id>/` 创建 `source / extracted / clean / translated / output / artifacts / reviews / logs`；项目元数据（媒体引用、fingerprint、语言对、run 历史、导出产物、状态）持久化到 SQLite `projects` 表。运行结束自动归档 `output/` 产物，`video_to_clean_srt` 成功后置为 `waiting_translation`，`translated_to_bilingual` 成功后置为 `done`，失败为 `failed`。
+- **配方库**：`core/recipe_library.py` + 4 个内置只读配方（`video_to_clean_srt`、`translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`）；用户配方存 `<data_dir>/recipes/<id>.json`，内置配方禁止覆盖/删除。M7 步骤（`sub.match_project` / `sub.merge_bilingual` / `sub.fps_convert`）与 `translate.linguagacha` 先提供端口/Schema 占位，执行时返回带 `milestone` 的明确错误。
+- **`pipeline.validate`**：`core/validation.py` 校验步骤 id 唯一、依赖存在、无环、未知实现、Options Schema、端口类型兼容、必填输入、when 表达式、导出目录不得越出工作区、导出文件名/路径冲突、配方输出端口与输入名重复；`pipeline.run` 启动前复用同一套规则，失败返回 `1001` + 完整报告。
+- **RPC 扩展**：`recipes.list/get/save/delete`、`pipeline.validate`、`project.create/list/get/delete`、`artifact.reveal`；`pipeline.run` 支持 `recipe_id`、按项目工作区运行并接受 `project` 上下文；新增 `project.updated` 事件。
+- **流程 1 前端**：拖入视频 → 创建项目 → 校验并运行 `video_to_clean_srt`；新增「最近项目」列表（重启后从 SQLite 恢复）与交接卡片（最新产物、打开所在文件夹、复制路径、提示拖回译文）。`runStore` 按 `run_id` 过滤迟到事件。
+- **测试**：新增项目 CRUD/状态机/删除清理、配方库只读与校验、`pipeline.validate` 规则、真实 MKV 的流程 1 端到端与引擎重启持久化测试。引擎测试增至 **164 个**，全部通过；前端 `tsc && vite build` 通过。
+
 ### M2 领域步骤
 
 #### 新增

@@ -23,7 +23,7 @@ from ..domain.clean import clean_srt_text, format_zh_srt_text
 from ..domain.srt import parse_srt
 from ..domain.validate import validate_doc
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
-from ._support import artifact_meta, artifact_stem, read_text
+from ._support import artifact_meta, artifact_stem, ingest_run_inputs, read_text
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class NormalizeSubtitles(Step):
     id = "sub.normalize"
     title = "规范字幕"
     description = "按开关清理括号/标签/人名提示，合并短句与相同行，可选中文标点规范化。"
-    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", required=False, multiple=True)}
     outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
     Options = NormalizeOptions
     requires_agent = False
@@ -50,7 +50,7 @@ class NormalizeSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: NormalizeOptions = ctx.options  # type: ignore[assignment]
-        sources: list[Artifact] = inputs["subs"]
+        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(ctx)
         results: list[Artifact] = []
 
         for position, artifact in enumerate(sources):
@@ -189,7 +189,7 @@ class ExportSubtitles(Step):
     title = "导出字幕"
     description = "把字幕写成 UTF-8 + LF 文件；覆盖前保留 .bak，并登记为运行产物。"
     inputs: dict[str, PortSpec] = {
-        "subs": PortSpec(kind="srt", multiple=True),
+        "subs": PortSpec(kind="any", multiple=True),
         "report": PortSpec(kind="validation", required=False, multiple=True),
     }
     outputs: dict[str, PortSpec] = {"files": PortSpec(kind="any", multiple=True)}
@@ -200,7 +200,11 @@ class ExportSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: ExportOptions = ctx.options  # type: ignore[assignment]
-        sources: list[Artifact] = inputs["subs"]
+        sources = [
+            item
+            for item in inputs.get("subs") or []
+            if item.kind in ("srt", "ass", "vtt")
+        ]
         if not sources:
             raise JsonRpcError(INVALID_PARAMS, "没有可导出的字幕", {"step": self.id})
         if options.filename and len(sources) != 1:

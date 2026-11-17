@@ -1246,15 +1246,18 @@ mkvmerge --version
 + `srt_process` 输出逐字节对比；`tests/test_domain_golden.py` 在无需 ffmpeg 的环境
 直接导入旧 `tools/` 算法做 Golden 对比。）
 
-### M3 项目与配方（5 天）
+### M3 项目与配方（5 天）✅
 
-- [ ] Project 工作区、状态机、SQLite 持久化。
-- [ ] 4 个内置配方。
-- [ ] `pipeline.validate` 完整。
-- [ ] 流程 1 端到端可用。
-- [ ] 交接卡片（打开文件夹/复制路径）。
+- [x] Project 工作区、状态机、SQLite 持久化。
+- [x] 4 个内置配方。
+- [x] `pipeline.validate` 完整。
+- [x] 流程 1 端到端可用。
+- [x] 交接卡片（打开文件夹/复制路径）。
 
 验收：拖入视频 → 干净 SRT → 状态 `waiting_translation`，重启应用后项目仍在。
+（`tests/test_flow1.py` 用真实 ffmpeg 生成的 MKV 跑通
+`project.create → pipeline.run(video_to_clean_srt) → project.get`，并重启
+`RpcServer` 验证项目仍在；前端新增「最近项目」与交接卡片。）
 
 ### M4 自由连线编辑器（7 天）
 

@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Artifact, Run
+from .models import Artifact, Project, ProjectSummary, Run
 
 logger = logging.getLogger(__name__)
 
@@ -334,6 +334,100 @@ class Store:
             for chunk in iter(lambda: handle.read(_CHUNK_SIZE), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    # ------------------------------------------------------------------
+    # Project
+    # ------------------------------------------------------------------
+
+    def save_project(self, project: Project) -> None:
+        """UPSERT 一个项目（``payload`` 为完整 Project JSON）。"""
+        with self._lock:
+            conn = self._require_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO projects(
+                      id, name, status, workspace, payload, created_at, updated_at
+                    )
+                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      name = excluded.name,
+                      status = excluded.status,
+                      workspace = excluded.workspace,
+                      payload = excluded.payload,
+                      created_at = excluded.created_at,
+                      updated_at = excluded.updated_at
+                    """,
+                    (
+                        project.id,
+                        project.name,
+                        project.status,
+                        project.workspace,
+                        project.model_dump_json(),
+                        project.created_at.isoformat(),
+                        project.updated_at.isoformat(),
+                    ),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"保存项目失败: {project.id}") from exc
+
+    def get_project(self, project_id: str) -> Project | None:
+        """按 id 读取项目；不存在返回 ``None``。"""
+        with self._lock:
+            conn = self._require_conn()
+            row = conn.execute(
+                "SELECT payload FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return Project.model_validate_json(row["payload"])
+
+    def list_projects(self, limit: int = 200) -> list[ProjectSummary]:
+        """按更新时间倒序列出项目摘要。"""
+        with self._lock:
+            conn = self._require_conn()
+            rows = conn.execute(
+                """
+                SELECT payload FROM projects
+                ORDER BY updated_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            summaries: list[ProjectSummary] = []
+            for row in rows:
+                project = Project.model_validate_json(row["payload"])
+                summaries.append(
+                    ProjectSummary(
+                        id=project.id,
+                        name=project.name,
+                        status=project.status,
+                        created_at=project.created_at,
+                        updated_at=project.updated_at,
+                        media_path=project.media.path if project.media else "",
+                        workspace=project.workspace,
+                        outputs=[output.path for output in project.outputs],
+                    )
+                )
+            return summaries
+
+    def delete_project(self, project_id: str) -> bool:
+        """删除项目及其 run 记录；不存在返回 ``False``。"""
+        with self._lock:
+            conn = self._require_conn()
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM projects WHERE id = ?", (project_id,)
+                ).fetchone()
+                if row is None:
+                    return False
+                conn.execute("DELETE FROM runs WHERE project_id = ?", (project_id,))
+                conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                conn.commit()
+                return True
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"删除项目失败: {project_id}") from exc
 
     # ------------------------------------------------------------------
     # Run

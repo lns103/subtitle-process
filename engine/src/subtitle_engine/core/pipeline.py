@@ -75,6 +75,8 @@ class Job:
     continue_on_error: bool = False
     max_retries: int = 1
     use_cache: bool = True
+    workspace: Path | None = None
+    project: Any = None
     finished_emitted: bool = False
 
 
@@ -175,6 +177,8 @@ class JobManager:
         continue_on_error: bool = False,
         max_retries: int = 1,
         use_cache: bool = True,
+        workspace: Path | None = None,
+        project: Any = None,
     ) -> Run:
         # 拓扑/依赖错误必须在创建 run 前暴露（1001），而不是变成一个失败 run。
         topological_order(recipe)
@@ -204,6 +208,8 @@ class JobManager:
             continue_on_error=continue_on_error,
             max_retries=max_retries,
             use_cache=use_cache,
+            workspace=workspace,
+            project=project,
         )
         self._jobs[run_id] = job
         if project_id is not None:
@@ -545,13 +551,14 @@ class JobManager:
             run_id=job.run.id,
             step_id=node.id,
             options=options,
-            workspace=self._workspace,
+            workspace=job.workspace or self._workspace,
             emit=lambda event_type, _node=node, **fields: job.emitter.emit(
                 event_type, step=_node.id, **fields
             ),
             progress=progress,
             is_cancelled=lambda: job.token.cancelled,
             services=Services(store=self._store, cache=self._cache, processes=self._processes),
+            project=job.project,
             inputs=inputs,
             run_inputs=tuple(job.inputs),
         )

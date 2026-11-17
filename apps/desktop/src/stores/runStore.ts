@@ -12,11 +12,12 @@ export interface RunLogEntry {
 
 interface RunState {
   runId: string | null;
+  projectId: string | null;
   status: "idle" | "running" | "done" | "failed" | "cancelled";
   progress: number;
   logs: RunLogEntry[];
   lastError: string | null;
-  begin: (runId: string) => void;
+  begin: (runId: string, projectId?: string | null) => void;
   applyEvent: (event: EngineEvent) => void;
   reset: () => void;
 }
@@ -53,16 +54,20 @@ function describe(event: EngineEvent): { message: string; level: RunLogEntry["le
 
 export const useRunStore = create<RunState>((set) => ({
   runId: null,
+  projectId: null,
   status: "idle",
   progress: 0,
   logs: [],
   lastError: null,
 
-  begin: (runId) =>
-    set({ runId, status: "running", progress: 0, logs: [], lastError: null }),
+  begin: (runId, projectId = null) =>
+    set({ runId, projectId, status: "running", progress: 0, logs: [], lastError: null }),
 
   applyEvent: (event) =>
     set((state) => {
+      // 只处理当前 run 的事件，避免旧 run 的迟到事件覆盖进度。
+      if (state.runId && event.run_id && event.run_id !== state.runId) return state;
+      if (event.type === "project.updated") return state;
       const { message, level } = describe(event);
       const entry: RunLogEntry = {
         key: `${event.event_id}:${state.logs.length}`,
@@ -98,5 +103,5 @@ export const useRunStore = create<RunState>((set) => ({
       return { ...state, logs };
     }),
 
-  reset: () => set({ runId: null, status: "idle", progress: 0, logs: [], lastError: null }),
+  reset: () => set({ runId: null, projectId: null, status: "idle", progress: 0, logs: [], lastError: null }),
 }));

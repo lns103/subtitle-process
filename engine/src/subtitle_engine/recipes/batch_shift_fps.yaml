@@ -1,0 +1,34 @@
+id: batch_shift_fps
+name: 批量帧率转换
+version: 1
+description: 按帧率比例缩放一批 SRT 的时间轴，输出 <原名>.fps.srt。算法将在 M7 完成。
+builtin: true
+inputs:
+  - name: files
+    kind: files
+    accept: [".srt"]
+    required: true
+steps:
+  - id: fps
+    uses: sub.fps_convert
+    with:
+      fps_in: 23.976
+      fps_out: 25.0
+      suffix: ".fps"
+  - id: validate
+    uses: sub.validate
+    needs: [fps]
+    with:
+      fail_on_error: false
+  - id: export
+    uses: sub.export
+    needs: [validate]
+    with:
+      format: srt
+      suffix: ".fps"
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui: {}

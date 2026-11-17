@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import platform
+import subprocess
 import sys
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -16,17 +19,21 @@ from typing import Any, BinaryIO
 from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
 from ..core.cache import StepCache
-from ..core.models import Event, Recipe, Run, StepNode
+from ..core.models import Event, Project, ProjectOutput, Recipe, Run, StepNode
 from ..core.paths import resolve_data_dir
 from ..core.pipeline import JobManager
+from ..core.projects import ProjectManager
+from ..core.recipe_library import RecipeLibrary
 from ..core.registry import step_specs
 from ..core.store import Store
+from ..core.validation import ensure_valid, validate_recipe
 from . import framing
 from .errors import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
+    RECIPE_INVALID,
     JsonRpcError,
     error_response,
     notification,
@@ -57,7 +64,7 @@ class RpcServer:
         *,
         sink: MessageSink | None = None,
         data_dir: str | Path | None = None,
-        capabilities: tuple[str, ...] = ("pipeline",),
+        capabilities: tuple[str, ...] = ("pipeline", "recipes", "project"),
     ) -> None:
         self._sink = sink
         self._writer: BinaryIO | None = None
@@ -70,6 +77,9 @@ class RpcServer:
         workspace.mkdir(parents=True, exist_ok=True)
         self._store = Store(self._data_dir)
         self._cache = StepCache(self._store, engine_version=engine_version.__version__)
+        self._recipes = RecipeLibrary(self._data_dir / "recipes")
+        self._projects = ProjectManager(self._store, self._data_dir / "projects")
+        self._run_artifacts: dict[str, list[dict[str, str]]] = {}
         self._closed = False
         self._jobs = JobManager(
             self._emit_event,
@@ -81,14 +91,32 @@ class RpcServer:
             "engine.hello": self._handle_hello,
             "engine.shutdown": self._handle_shutdown,
             "steps.list": self._handle_steps_list,
+            "recipes.list": self._handle_recipes_list,
+            "recipes.get": self._handle_recipes_get,
+            "recipes.save": self._handle_recipes_save,
+            "recipes.delete": self._handle_recipes_delete,
+            "pipeline.validate": self._handle_pipeline_validate,
             "pipeline.run": self._handle_pipeline_run,
             "job.status": self._handle_job_status,
             "job.cancel": self._handle_job_cancel,
+            "project.create": self._handle_project_create,
+            "project.list": self._handle_project_list,
+            "project.get": self._handle_project_get,
+            "project.delete": self._handle_project_delete,
+            "artifact.reveal": self._handle_artifact_reveal,
         }
 
     @property
     def jobs(self) -> JobManager:
         return self._jobs
+
+    @property
+    def projects(self) -> ProjectManager:
+        return self._projects
+
+    @property
+    def recipes(self) -> RecipeLibrary:
+        return self._recipes
 
     def close(self) -> None:
         """释放 SQLite 连接（测试与退出路径显式调用）。"""
@@ -115,6 +143,71 @@ class RpcServer:
         raise RuntimeError("RpcServer 既没有 writer 也没有 sink")
 
     def _emit_event(self, event: Event) -> None:
+        self._track_artifacts(event)
+        self._send(notification("event", event.model_dump(mode="json", exclude_none=True)))
+        if event.type == "run.finished" and event.run_id:
+            self._finish_project_run(event)
+
+    def _track_artifacts(self, event: Event) -> None:
+        if event.type != "step.artifact" or not event.run_id:
+            return
+        path = getattr(event, "path", None)
+        kind = getattr(event, "kind", None)
+        if not path or kind not in ("srt", "ass", "vtt"):
+            return
+        self._run_artifacts.setdefault(event.run_id, []).append(
+            {
+                "path": str(path),
+                "kind": str(kind),
+                "step": str(getattr(event, "step", "") or ""),
+            }
+        )
+
+    def _finish_project_run(self, event: Event) -> None:
+        run_id = event.run_id
+        if not run_id:
+            return
+        try:
+            try:
+                run = self._jobs.get(run_id)
+            except JsonRpcError:
+                run = self._store.get_run(run_id)
+            if run is None or not run.project_id:
+                self._run_artifacts.pop(run_id, None)
+                return
+            project = self._store.get_project(run.project_id)
+            workspace = Path(project.workspace) if project and project.workspace else None
+            outputs = []
+            for item in self._run_artifacts.pop(run_id, []):
+                path = Path(item["path"])
+                if workspace is None:
+                    continue
+                try:
+                    if not path.resolve().is_relative_to((workspace / "output").resolve()):
+                        continue
+                except OSError:
+                    continue
+                outputs.append(
+                    ProjectOutput(
+                        path=str(path),
+                        kind=item["kind"],
+                        step=item["step"] or None,
+                    )
+                )
+            updated = self._projects.record_run(run, outputs)
+            if updated is not None:
+                self._emit_project(updated)
+        except Exception:  # noqa: BLE001 - 项目归档失败必须记录，但不能破坏事件流
+            logger.exception("更新项目状态失败: run=%s", run_id)
+
+    def _emit_project(self, project: Project) -> None:
+        event = Event(
+            event_id=f"evt_prj_{uuid.uuid4().hex[:12]}",
+            project_id=project.id,
+            seq=0,
+            type="project.updated",
+            project=project.model_dump(mode="json", exclude_none=True),
+        )
         self._send(notification("event", event.model_dump(mode="json", exclude_none=True)))
 
     async def serve(self, reader: BinaryIO, writer: BinaryIO) -> None:
@@ -223,18 +316,7 @@ class RpcServer:
         return [spec.model_dump(mode="json") for spec in step_specs()]
 
     async def _handle_pipeline_run(self, params: dict[str, Any]) -> dict[str, str]:
-        from .errors import RECIPE_INVALID
-
-        raw_recipe = params.get("recipe")
-        if raw_recipe is None:
-            recipe = default_demo_recipe()
-        else:
-            try:
-                recipe = Recipe.model_validate(raw_recipe)
-            except Exception as exc:  # noqa: BLE001 - 转成 1001
-                raise JsonRpcError(
-                    RECIPE_INVALID, f"配方校验失败: {exc}", {"detail": str(exc)}
-                ) from exc
+        recipe = self._load_recipe_param(params, required=False) or default_demo_recipe()
         if not recipe.steps:
             raise JsonRpcError(RECIPE_INVALID, "配方没有任何步骤", {"recipe": recipe.id})
         inputs = params.get("inputs") or []
@@ -252,16 +334,138 @@ class RpcServer:
             raise JsonRpcError(INVALID_PARAMS, "max_retries 必须是非负整数")
         continue_on_error = bool(params.get("continue_on_error", False))
         use_cache = not bool(params.get("no_cache", False))
+
+        project = self._resolve_project(params)
+        workspace = Path(project.workspace) if project and project.workspace else None
+        ensure_valid(
+            recipe,
+            workspace=workspace,
+            agent_configured=self._agent_configured(),
+        )
+
         run = self._jobs.start(
             recipe,
             inputs=inputs,
-            project_id=params.get("project_id"),
+            project_id=project.id if project else params.get("project_id"),
             options=options,
             max_retries=max_retries,
             continue_on_error=continue_on_error,
             use_cache=use_cache,
+            workspace=workspace,
+            project=project,
         )
+        self._run_artifacts[run.id] = []
+        if project is not None:
+            updated = self._projects.mark_run_started(project.id, run)
+            self._emit_project(updated)
         return {"job_id": run.id, "run_id": run.id}
+
+    async def _handle_pipeline_validate(self, params: dict[str, Any]) -> dict[str, Any]:
+        recipe = self._load_recipe_param(params, required=True)
+        assert recipe is not None  # required=True 保证
+        project = self._resolve_project(params)
+        workspace = Path(project.workspace) if project and project.workspace else None
+        result = validate_recipe(
+            recipe,
+            workspace=workspace,
+            agent_configured=self._agent_configured(),
+        )
+        return result.model_dump(mode="json", exclude_none=True)
+
+    async def _handle_recipes_list(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in self._recipes.list()]
+
+    async def _handle_recipes_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        recipe = self._recipes.get(_require_str(params, "id"))
+        return recipe.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    async def _handle_recipes_save(self, params: dict[str, Any]) -> dict[str, Any]:
+        raw = params.get("recipe")
+        if raw is None:
+            raise JsonRpcError(INVALID_PARAMS, "缺少参数 recipe")
+        try:
+            recipe = Recipe.model_validate(raw)
+        except Exception as exc:  # noqa: BLE001 - 转成 1001
+            raise JsonRpcError(RECIPE_INVALID, f"配方校验失败: {exc}") from exc
+        saved = self._recipes.save(recipe)
+        return saved.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    async def _handle_recipes_delete(self, params: dict[str, Any]) -> str:
+        self._recipes.delete(_require_str(params, "id"))
+        return "ok"
+
+    async def _handle_project_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        media_path = params.get("media_path")
+        if media_path is not None and not isinstance(media_path, str):
+            raise JsonRpcError(INVALID_PARAMS, "media_path 必须是字符串")
+        name = params.get("name")
+        if name is not None and not isinstance(name, str):
+            raise JsonRpcError(INVALID_PARAMS, "name 必须是字符串")
+        language = None
+        raw_language = params.get("language")
+        if raw_language is not None:
+            try:
+                from ..core.models import LanguagePair
+
+                language = LanguagePair.model_validate(raw_language)
+            except Exception as exc:  # noqa: BLE001
+                raise JsonRpcError(INVALID_PARAMS, f"language 参数非法: {exc}") from exc
+        project = self._projects.create(
+            name=name, media_path=media_path, language=language
+        )
+        self._emit_project(project)
+        return project.model_dump(mode="json", exclude_none=True)
+
+    async def _handle_project_list(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in self._projects.list()]
+
+    async def _handle_project_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        project = self._projects.get(_require_str(params, "id"))
+        return project.model_dump(mode="json", exclude_none=True)
+
+    async def _handle_project_delete(self, params: dict[str, Any]) -> str:
+        self._projects.delete(_require_str(params, "id"))
+        return "ok"
+
+    async def _handle_artifact_reveal(self, params: dict[str, Any]) -> str:
+        _reveal_path(_require_str(params, "path"))
+        return "ok"
+
+    # ---- 内部辅助 -----------------------------------------------------
+    def _load_recipe_param(
+        self, params: dict[str, Any], *, required: bool
+    ) -> Recipe | None:
+        raw = params.get("recipe")
+        if raw is not None:
+            try:
+                return Recipe.model_validate(raw)
+            except Exception as exc:  # noqa: BLE001 - 转成 1001
+                raise JsonRpcError(
+                    RECIPE_INVALID, f"配方校验失败: {exc}", {"detail": str(exc)}
+                ) from exc
+        recipe_id = params.get("recipe_id")
+        if recipe_id is not None:
+            if not isinstance(recipe_id, str) or not recipe_id:
+                raise JsonRpcError(INVALID_PARAMS, "recipe_id 必须是非空字符串")
+            return self._recipes.get(recipe_id)
+        if required:
+            raise JsonRpcError(INVALID_PARAMS, "缺少参数 recipe 或 recipe_id")
+        return None
+
+    def _resolve_project(self, params: dict[str, Any]) -> Project | None:
+        project_id = params.get("project_id")
+        if project_id is None or project_id == "":
+            return None
+        if not isinstance(project_id, str):
+            raise JsonRpcError(INVALID_PARAMS, "project_id 必须是字符串")
+        project = self._store.get_project(project_id)
+        if project is None:
+            # 兼容旧客户端：project_id 仅用于并发锁，不强制已登记为项目。
+            logger.warning("pipeline.run 使用了未登记的项目 id: %s", project_id)
+        return project
+
+    def _agent_configured(self) -> bool:
+        return self._store.get_setting("agent.configured") == "1"
 
     async def _handle_job_status(self, params: dict[str, Any]) -> dict[str, Any]:
         run: Run = self._jobs.get(_require_str(params, "job_id"))
@@ -270,6 +474,33 @@ class RpcServer:
     async def _handle_job_cancel(self, params: dict[str, Any]) -> str:
         self._jobs.cancel(_require_str(params, "job_id"))
         return "ok"
+
+
+def _reveal_path(path: str) -> None:
+    target = Path(path).expanduser()
+    if not target.exists():
+        raise JsonRpcError(
+            INVALID_PARAMS, f"路径不存在: {target}", {"path": str(target)}
+        )
+    try:
+        if os.name == "nt":
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            args = (
+                ["explorer.exe", f"/select,{target}"]
+                if target.is_file()
+                else ["explorer.exe", str(target)]
+            )
+            subprocess.Popen(args, creationflags=flags)  # noqa: S603
+        elif sys.platform == "darwin":
+            args = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
+            subprocess.Popen(args)  # noqa: S603
+        else:
+            folder = target.parent if target.is_file() else target
+            subprocess.Popen(["xdg-open", str(folder)])  # noqa: S603
+    except OSError as exc:
+        raise JsonRpcError(
+            INTERNAL_ERROR, f"打开路径失败: {target}", {"detail": str(exc)}
+        ) from exc
 
 
 def _require_str(params: dict[str, Any], key: str) -> str:

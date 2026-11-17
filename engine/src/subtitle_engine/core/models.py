@@ -23,6 +23,11 @@ class PortSpec(BaseModel):
     multiple: bool = False
 
 
+ProjectStatus = Literal[
+    "draft", "running", "waiting_review", "waiting_translation", "done", "failed"
+]
+
+
 class StepSpec(BaseModel):
     """``steps.list`` 的返回项；``options_schema`` 由 Pydantic 自动生成。"""
 
@@ -71,6 +76,90 @@ class Recipe(BaseModel):
     steps: list[StepNode] = Field(default_factory=list)
     outputs: list[RecipeOutput] = Field(default_factory=list)
     ui: dict[str, Any] = Field(default_factory=dict)
+
+
+class RecipeSummary(BaseModel):
+    """``recipes.list`` 返回的轻量摘要。"""
+
+    id: str
+    name: str
+    version: int = 1
+    description: str = ""
+    builtin: bool = False
+    step_count: int = 0
+
+
+class ValidationIssue(BaseModel):
+    """``pipeline.validate`` 的结构化问题；前端按 ``step_id`` 高亮节点。"""
+
+    severity: Literal["error", "warning"] = "error"
+    code: str
+    message: str
+    step_id: str | None = None
+    port: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ValidationResult(BaseModel):
+    ok: bool
+    errors: list[ValidationIssue] = Field(default_factory=list)
+    warnings: list[ValidationIssue] = Field(default_factory=list)
+    order: list[str] = Field(default_factory=list)
+
+
+class MediaRef(BaseModel):
+    path: str
+    fingerprint: str = ""
+    duration: float = 0.0
+    streams: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LanguagePair(BaseModel):
+    source: str = "auto"
+    target: str = "zh"
+
+
+class RunRef(BaseModel):
+    id: str
+    recipe_id: str
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class ProjectOutput(BaseModel):
+    path: str
+    kind: str = "srt"
+    step: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class Project(BaseModel):
+    """一个媒体/字幕任务的长期工作区（TASKBOOK §6.2）。"""
+
+    id: str
+    name: str
+    status: ProjectStatus = "draft"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    media: MediaRef | None = None
+    language: LanguagePair = Field(default_factory=LanguagePair)
+    runs: list[RunRef] = Field(default_factory=list)
+    outputs: list[ProjectOutput] = Field(default_factory=list)
+    notes: str = ""
+    #: 工作区绝对路径；由 ProjectManager 写入，便于 UI 直接打开。
+    workspace: str = ""
+
+
+class ProjectSummary(BaseModel):
+    id: str
+    name: str
+    status: ProjectStatus
+    created_at: datetime
+    updated_at: datetime
+    media_path: str = ""
+    workspace: str = ""
+    outputs: list[str] = Field(default_factory=list)
 
 
 StepStatus = Literal[

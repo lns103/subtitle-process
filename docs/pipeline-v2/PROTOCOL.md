@@ -2,7 +2,7 @@
 
 > 适用：`engine/`（Python sidecar）↔ `apps/desktop/src-tauri`（Rust supervisor）↔ React 前端
 > 版本：协议 `1`，随 `engine/src/subtitle_engine/version.py::PROTOCOL_VERSION` 递增
-> 最后更新：2026-11-17（M0）
+> 最后更新：2026-11-17（M3）
 
 ## 1. 传输层
 
@@ -90,7 +90,7 @@ subtitle-engine.exe --rpc stdio
 - 引擎**始终**返回自身 `protocol`，即使客户端版本不同。
 - 前端必须比较 `result.protocol` 与自身支持的版本；不一致时阻止运行并提示升级。
 - Rust supervisor 在 spawn 后 10s 内未完成握手即判定启动失败。
-- `capabilities` 目前为 `["pipeline"]`；M5/M6 增加 `review` / `agent`。
+- `capabilities` 当前为 `["pipeline", "recipes", "project"]`；M5/M6 增加 `review` / `agent`。
 
 ## 4. 方法表
 
@@ -101,20 +101,21 @@ subtitle-engine.exe --rpc stdio
 | `engine.hello` | `client?, protocol?` | `EngineInfo` | M0 | 握手 |
 | `engine.shutdown` | `{}` | `"ok"` | M0 | 优雅退出；响应发出后进程退出 |
 | `steps.list` | `{}` | `StepSpec[]` | M0 | 步骤目录 + Options JSON Schema |
-| `pipeline.run` | `recipe?, inputs?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1 | 启动；省略 `recipe` 时运行内置示例 |
+| `pipeline.run` | `recipe?, recipe_id?, inputs?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1/M3 | 启动；省略 recipe 时按 recipe_id 加载，再省略则运行内置示例 |
 | `job.status` | `job_id` | `Run` | M0 | 查询运行状态 |
 | `job.cancel` | `job_id` | `"ok"` | M0 | 取消并杀子进程树 |
-| `recipes.list` | `{}` | `RecipeSummary[]` | M3 | 预设 + 用户配方 |
+| `recipes.list` | `{}` | `RecipeSummary[]` | M3 | 4 个内置模板 + 用户配方 |
 | `recipes.get` | `id` | `Recipe` | M3 | 读取 |
-| `recipes.save` | `recipe` | `Recipe` | M3 | 保存用户配方 |
+| `recipes.save` | `recipe` | `Recipe` | M3 | 保存用户配方；内置配方只读 |
 | `recipes.delete` | `id` | `"ok"` | M3 | 只允许删用户配方 |
-| `pipeline.validate` | `recipe` | `ValidationResult` | M3 | 环、端口、必填、路径冲突 |
+| `pipeline.validate` | `recipe? / recipe_id?, project_id?` | `ValidationResult` | M3 | 环、端口、必填、选项、路径冲突 |
+| `project.create` | `name?, media_path?, language?` | `Project` | M3 | 创建工作区（扩展方法） |
 | `project.list` | `{}` | `ProjectSummary[]` | M3 | 项目库 |
 | `project.get` | `id` | `Project` | M3 | 详情 |
-| `project.delete` | `id` | `"ok"` | M3 | 删除工作区 |
+| `project.delete` | `id` | `"ok"` | M3 | 删除工作区与 run 记录 |
 | `review.list` | `run_id` | `ReviewItem[]` | M5 | 待审项 |
 | `review.submit` | `run_id, decisions` | `"ok"` | M5 | 提交审核结果 |
-| `artifact.reveal` | `path` | `"ok"` | M3 | 资源管理器打开 |
+| `artifact.reveal` | `path` | `"ok"` | M3 | 资源管理器定位文件/目录 |
 | `settings.get` | `{}` | `Settings` | M6 | 读取设置 |
 | `settings.set` | `settings` | `Settings` | M6 | 保存设置 |
 | `secrets.set` | `name, value` | `"ok"` | M6 | 写入系统钥匙串 |
@@ -158,6 +159,89 @@ subtitle-engine.exe --rpc stdio
 - 步骤 `status`：`idle | queued | running | done | failed | skipped | waiting_review | cancelled`
 - `cached=true` 表示该步命中缓存（未执行、`attempts=0`）。
 - 时间字段为 ISO 8601 UTC；未发生的字段省略（`exclude_none`）。
+
+### 4.3 `pipeline.validate` 返回（M3）
+
+```json
+{
+  "ok": false,
+  "errors": [
+    {
+      "severity": "error",
+      "code": "incompatible_port",
+      "message": "步骤 export 的输入 subs（srt）与上游类型不兼容: ass",
+      "step_id": "export",
+      "port": "subs",
+      "data": {"available": ["ass"]}
+    }
+  ],
+  "warnings": [],
+  "order": ["probe", "extract", "normalize", "validate", "export"]
+}
+```
+
+校验规则：
+
+- 步骤 id 唯一、`needs` 必须存在、无环。
+- 未知步骤实现、Options Schema 校验失败。
+- 必填输入端口必须有类型兼容的上游；`kind` 相同或任一端为 `any`。
+- `sub.export` 的 `output_dir` 必须位于项目工作区内，`filename` 不得含路径分隔符；多个导出步骤不得写同一路径。
+- `recipe.outputs` 必须引用已声明端口。
+- 需要 Agent 的步骤在未配置时返回 `warning: agent_not_configured`（运行时会返回 `1005`）。
+
+`pipeline.run` 会在启动前执行同一套校验；失败返回 `1001`，`error.data` 即上述结果。
+
+### 4.4 `Project`（M3）
+
+```json
+{
+  "id": "prj_1a2b3c4d5e6f",
+  "name": "EP01",
+  "status": "waiting_translation",
+  "created_at": "2026-11-17T12:00:00Z",
+  "updated_at": "2026-11-17T12:01:00Z",
+  "media": {
+    "path": "D:/video/EP01.mkv",
+    "fingerprint": "sha256(路径+大小+mtime)",
+    "duration": 0.0,
+    "streams": []
+  },
+  "language": {"source": "auto", "target": "zh"},
+  "runs": [{"id": "run_1a2b3c4d", "recipe_id": "video_to_clean_srt", "status": "done"}],
+  "outputs": [
+    {"path": "…/projects/prj_…/output/EP01.clean.srt", "kind": "srt", "step": "export"}
+  ],
+  "notes": "",
+  "workspace": "…/projects/prj_1a2b3c4d5e6f"
+}
+```
+
+工作区目录：`<data_dir>/projects/<project_id>/{source,extracted,clean,translated,output,artifacts,reviews,logs}`。
+`project.list` 返回 `ProjectSummary`（含 `media_path`、`workspace`、`outputs` 路径数组）。
+
+状态机：`draft → running → waiting_review / waiting_translation → running → done`，失败为 `failed`。
+`video_to_clean_srt` 成功且登记到 `output/` 产物后置为 `waiting_translation`；
+`translated_to_bilingual` 成功置为 `done`。
+
+### 4.5 `recipes.list` 返回（M3）
+
+```json
+[
+  {
+    "id": "video_to_clean_srt",
+    "name": "视频 → 规范字幕",
+    "version": 1,
+    "description": "…",
+    "builtin": true,
+    "step_count": 5
+  }
+]
+```
+
+内置配方：`video_to_clean_srt`、`translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`。
+内置项 `builtin=true`，`recipes.save` / `recipes.delete` 会返回 `1001`；用户配方存
+`<data_dir>/recipes/<id>.json`。`translated_to_bilingual` / `batch_shift_fps` 依赖的
+M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标明计划里程碑。
 
 ## 5. 错误码
 

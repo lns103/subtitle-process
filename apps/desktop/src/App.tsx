@@ -3,7 +3,9 @@ import { RefreshCw, Server } from "lucide-react";
 import { DropZone } from "./features/dropzone/DropZone";
 import { RunView } from "./features/run-view/RunView";
 import { onEngineEvent, onEngineStatus } from "./lib/events";
+import type { Project } from "./lib/models";
 import { getEngineStatus, restartEngine, type EngineStatus } from "./lib/rpc";
+import { useProjectStore } from "./stores/projectStore";
 import { useRunStore } from "./stores/runStore";
 
 function statusLabel(status: EngineStatus): { text: string; tone: string } {
@@ -37,10 +39,17 @@ export default function App() {
       if (disposed) fn();
       else cleanups.push(fn);
     });
-    void onEngineEvent((event) => useRunStore.getState().applyEvent(event)).then((fn) => {
+    void onEngineEvent((event) => {
+      useRunStore.getState().applyEvent(event);
+      if (event.type === "project.updated" && event.project) {
+        useProjectStore.getState().applyUpdate(event.project as Project);
+      }
+    }).then((fn) => {
       if (disposed) fn();
       else cleanups.push(fn);
     });
+
+    void useProjectStore.getState().refresh();
 
     return () => {
       disposed = true;

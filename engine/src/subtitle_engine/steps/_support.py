@@ -82,3 +82,76 @@ def artifact_stem(artifact: Artifact) -> str:
 
 def artifact_meta(artifact: Artifact) -> dict[str, Any]:
     return dict(artifact.meta or {})
+
+
+def ingest_run_inputs(
+    ctx: StepContext,
+    *,
+    kind: str = "srt",
+    suffixes: tuple[str, ...] = (".srt",),
+    key_prefix: str = "",
+) -> list[Artifact]:
+    """把 ``pipeline.run.inputs`` 中的字幕文件登记为产物。
+
+    ``media.probe`` 直接读取运行输入；批处理类字幕步骤（如 ``sub.normalize``）
+    没有上游端口时也需要同一份输入。只在显式允许的后缀内读取，目录会展开为
+    一层文件列表，避免误吞媒体文件。
+    """
+    raw_inputs = list(getattr(ctx, "run_inputs", ()) or ())
+    if not raw_inputs:
+        raise JsonRpcError(
+            INVALID_PARAMS,
+            "没有可处理的字幕文件：请在 pipeline.run.inputs 中指定路径",
+            {"suffixes": list(suffixes)},
+        )
+
+    files: list[Path] = []
+    for raw in raw_inputs:
+        path = Path(normalize_path(str(raw)))
+        if path.is_dir():
+            files.extend(
+                sorted(
+                    item
+                    for item in path.iterdir()
+                    if item.is_file() and item.suffix.lower() in suffixes
+                )
+            )
+        elif path.is_file():
+            files.append(path)
+        else:
+            raise JsonRpcError(
+                INVALID_PARAMS, f"输入路径不存在: {path}", {"path": str(path)}
+            )
+
+    artifacts: list[Artifact] = []
+    for path in files:
+        suffix = path.suffix.lower()
+        if suffix not in suffixes:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"不支持的输入格式: {path.suffix or '<无扩展名>'}",
+                {"path": str(path), "supported": list(suffixes)},
+            )
+        key = f"{key_prefix}{path.stem}" if key_prefix else path.stem
+        artifacts.append(
+            ctx.services.store.put_bytes(
+                key=key,
+                kind=kind,
+                data=path.read_bytes(),
+                suffix=suffix,
+                meta={
+                    "source_path": str(path),
+                    "source_stem": path.stem,
+                    "output_stem": path.stem,
+                    "ingested": True,
+                },
+            )
+        )
+
+    if not artifacts:
+        raise JsonRpcError(
+            INVALID_PARAMS,
+            "输入目录中没有可处理的字幕文件",
+            {"supported": list(suffixes)},
+        )
+    return artifacts

@@ -32,4 +32,11 @@ describe("hash 路由", () => {
     const route = { name: "review", runId: "run 01" } as const;
     expect(parseRoute(routeHash(route))).toEqual(route);
   });
+
+  it("解析设置路由", () => {
+    expect(parseRoute("#/settings")).toEqual({ name: "settings" });
+    expect(parseRoute("#/settings/")).toEqual({ name: "settings" });
+    expect(routeHash({ name: "settings" })).toBe("#/settings");
+    expect(parseRoute(routeHash({ name: "settings" }))).toEqual({ name: "settings" });
+  });
 });

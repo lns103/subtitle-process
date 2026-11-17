@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import subprocess
 import sys
 import uuid
@@ -18,6 +19,8 @@ from typing import Any, BinaryIO
 
 from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
+from ..agents.client import AgentError, AgentNotConfigured
+from ..agents.service import AgentService, ClientFactory
 from ..core.audit import restore_from_audit
 from ..core.cache import StepCache
 from ..core.models import (
@@ -35,10 +38,13 @@ from ..core.projects import ProjectManager
 from ..core.recipe_library import RecipeLibrary
 from ..core.registry import step_specs
 from ..core.reviews import ReviewStore
+from ..core.secrets import SecretStore, SecretStoreError, SecretStoreProtocol
+from ..core.settings import AppSettings, save_settings, settings_payload
 from ..core.store import Store
 from ..core.validation import ensure_valid, validate_recipe
 from . import framing
 from .errors import (
+    AGENT_NOT_CONFIGURED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -75,7 +81,15 @@ class RpcServer:
         *,
         sink: MessageSink | None = None,
         data_dir: str | Path | None = None,
-        capabilities: tuple[str, ...] = ("pipeline", "recipes", "project", "review"),
+        capabilities: tuple[str, ...] = (
+            "pipeline",
+            "recipes",
+            "project",
+            "review",
+            "agent",
+        ),
+        secret_store: SecretStoreProtocol | None = None,
+        agent_client_factory: ClientFactory | None = None,
     ) -> None:
         self._sink = sink
         self._writer: BinaryIO | None = None
@@ -91,6 +105,12 @@ class RpcServer:
         self._recipes = RecipeLibrary(self._data_dir / "recipes")
         self._projects = ProjectManager(self._store, self._data_dir / "projects")
         self._reviews = ReviewStore(self._store)
+        self._secrets: SecretStoreProtocol = secret_store or SecretStore()
+        self._agent = AgentService(
+            self._store,
+            self._secrets,
+            client_factory=agent_client_factory,
+        )
         self._run_artifacts: dict[str, list[dict[str, str]]] = {}
         self._closed = False
         self._jobs = JobManager(
@@ -98,6 +118,7 @@ class RpcServer:
             store=self._store,
             cache=self._cache,
             reviews=self._reviews,
+            agent=self._agent,
             workspace=workspace,
         )
         self._handlers: dict[str, Handler] = {
@@ -120,6 +141,10 @@ class RpcServer:
             "review.submit": self._handle_review_submit,
             "review.undo": self._handle_review_undo,
             "artifact.reveal": self._handle_artifact_reveal,
+            "settings.get": self._handle_settings_get,
+            "settings.set": self._handle_settings_set,
+            "secrets.set": self._handle_secrets_set,
+            "agent.test": self._handle_agent_test,
         }
 
     @property
@@ -578,6 +603,70 @@ class RpcServer:
         _reveal_path(_require_str(params, "path"))
         return "ok"
 
+    # ---- M6 设置 / 钥匙串 / Agent --------------------------------------
+    async def _handle_settings_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        return settings_payload(
+            self._store, api_key_configured=self._agent.configured()
+        )
+
+    async def _handle_settings_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        raw = params.get("settings")
+        if not isinstance(raw, dict):
+            raise JsonRpcError(INVALID_PARAMS, "缺少参数 settings")
+        if _contains_secret_field(raw):
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                "设置中不得包含 API Key，请使用 secrets.set",
+                {"hint": "secrets.set"},
+            )
+        try:
+            settings = AppSettings.model_validate(raw)
+        except Exception as exc:  # noqa: BLE001 - 转成参数错误
+            raise JsonRpcError(INVALID_PARAMS, f"设置校验失败: {exc}") from exc
+        save_settings(self._store, settings)
+        return settings_payload(
+            self._store, api_key_configured=self._agent.configured()
+        )
+
+    async def _handle_secrets_set(self, params: dict[str, Any]) -> str:
+        name = _require_str(params, "name")
+        if not _SECRET_NAME_RE.fullmatch(name):
+            raise JsonRpcError(INVALID_PARAMS, f"密钥名称非法: {name}")
+        value = params.get("value")
+        if not isinstance(value, str):
+            raise JsonRpcError(INVALID_PARAMS, "value 必须是字符串")
+        try:
+            if value == "":
+                self._secrets.delete(name)
+            else:
+                self._secrets.set(name, value)
+        except SecretStoreError as exc:
+            raise JsonRpcError(
+                STEP_FAILED, str(exc), {"name": name, "hint": "keyring"}
+            ) from exc
+        logger.info("已更新钥匙串项: %s", name)
+        return "ok"
+
+    async def _handle_agent_test(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result = await self._agent.test_connection()
+        except AgentNotConfigured as exc:
+            raise JsonRpcError(
+                AGENT_NOT_CONFIGURED,
+                "Agent 未配置，请先在设置页填写 API Key",
+                {"hint": "settings", **exc.data},
+            ) from exc
+        except AgentError as exc:
+            raise JsonRpcError(
+                STEP_FAILED, str(exc), {"hint": "agent", **exc.data}
+            ) from exc
+        return {
+            "ok": result.ok,
+            "latency_ms": result.latency_ms,
+            "model": result.model,
+            "base_url": result.base_url,
+        }
+
     # ---- 内部辅助 -----------------------------------------------------
     def _load_recipe_param(
         self, params: dict[str, Any], *, required: bool
@@ -612,7 +701,7 @@ class RpcServer:
         return project
 
     def _agent_configured(self) -> bool:
-        return self._store.get_setting("agent.configured") == "1"
+        return self._agent.configured()
 
     async def _handle_job_status(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _require_str(params, "job_id")
@@ -663,6 +752,23 @@ def _require_str(params: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value:
         raise JsonRpcError(INVALID_PARAMS, f"缺少参数 {key}")
     return value
+
+
+_SECRET_NAME_RE = re.compile(r"^[a-z0-9_.-]{1,64}$")
+
+
+def _contains_secret_field(value: Any) -> bool:
+    """递归检查设置中是否混入 api_key 等敏感字段。"""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if "api_key" in lowered or lowered in {"apikey", "secret", "token"}:
+                return True
+            if _contains_secret_field(item):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_secret_field(item) for item in value)
+    return False
 
 
 async def serve_stdio() -> None:

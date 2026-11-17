@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 export type Route =
   | { name: "home" }
   | { name: "editor"; recipeId: string | null }
-  | { name: "review"; runId: string };
+  | { name: "review"; runId: string }
+  | { name: "settings" };
 
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, "");
@@ -13,6 +14,9 @@ export function parseRoute(hash: string): Route {
   if (review) {
     const runId = decodeURIComponent(review[1] ?? "");
     if (runId.trim()) return { name: "review", runId };
+  }
+  if (/^\/settings\/?$/.test(path)) {
+    return { name: "settings" };
   }
   const match = /^\/editor(?:\/([^/]+))?\/?$/.exec(path);
   if (match) {
@@ -28,6 +32,9 @@ export function routeHash(route: Route): string {
   }
   if (route.name === "review") {
     return `#/review/${encodeURIComponent(route.runId)}`;
+  }
+  if (route.name === "settings") {
+    return "#/settings";
   }
   return "#/";
 }

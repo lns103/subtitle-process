@@ -48,6 +48,9 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
 └─ workspace/               # 步骤工作目录
 ```
 
+API Key 不写入 `store.db`：`secrets.set` 使用系统钥匙串（`keyring`，Windows Credential
+Manager）。headless/CI 可用 `SUBTITLE_ENGINE_AGENT_API_KEY` 环境变量临时提供 Key。
+
 ## 结构
 
 - `core/`：models、registry、pipeline（拓扑/缓存/重试/取消/并发）、store、cache、events、processes、recipes
@@ -56,10 +59,11 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
   - `media.probe` / `media.extract_subtitles`：ffprobe / ffmpeg / MKVToolNix
   - `sub.normalize` / `sub.validate` / `sub.export`：清理、校验与导出
   - `sub.sdh_scan` / `human.review`：SDH 规则标记、HITL 审核与审计（M5）
+  - `agent.sdh_review`：只处理 SDH 候选的 Agent 结构化决策（M6）
 - `domain/`：纯算法层（SRT 解析、清理、SDH 规则、媒体解析、路径、校验），可在无 GUI/子进程环境单测
 - `adapters/`：ffmpeg / ffprobe / mkvmerge 子进程封装，缺失依赖抛 `1006`
 - `rpc/`：JSONL 分帧、JSON-RPC 服务端、错误码
-- `agents/`：M6 接入 Agent
+- `agents/`：OpenAI 兼容客户端、SDH 提示词/结构化决策、设置与钥匙串门面（M6）
 
 ## 约定
 

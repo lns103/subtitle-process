@@ -184,6 +184,36 @@ export interface ReviewUndoResult {
   restored: Array<{ path: string; hash: string }>;
 }
 
+// ---- M6 Agent 设置 -----------------------------------------------------
+
+/** ``settings.get`` 中的 Agent 配置；``api_key`` 永不返回，仅暴露是否已配置。 */
+export interface AgentSettings {
+  base_url: string;
+  model: string;
+  temperature: number;
+  timeout_s: number;
+  max_retries: number;
+  batch_size: number;
+  context_size: number;
+  min_confidence: number;
+  auto_apply: boolean;
+  delete_ratio_limit: number;
+  structured_output: "json_schema" | "json_object";
+  api_key_configured?: boolean;
+}
+
+export interface AppSettings {
+  agent: AgentSettings;
+}
+
+/** ``agent.test`` 的连通性结果。 */
+export interface AgentTestResult {
+  ok: boolean;
+  latency_ms: number;
+  model?: string;
+  base_url?: string;
+}
+
 export const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".mov", ".avi", ".ts"];
 export const SUBTITLE_EXTENSIONS = [".srt", ".ass", ".vtt"];
 

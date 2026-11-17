@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Server, Workflow } from "lucide-react";
+import { RefreshCw, Server, Settings, Workflow } from "lucide-react";
 import { DropZone } from "./features/dropzone/DropZone";
 import { EditorPage } from "./features/editor/EditorPage";
 import { ReviewPage } from "./features/review/ReviewPage";
 import { RunView } from "./features/run-view/RunView";
+import { SettingsPage } from "./features/settings/SettingsPage";
 import { onEngineEvent, onEngineStatus } from "./lib/events";
 import type { Project } from "./lib/models";
 import { getEngineStatus, restartEngine, type EngineStatus } from "./lib/rpc";
@@ -72,6 +73,10 @@ export default function App() {
     return <ReviewPage runId={route.runId} />;
   }
 
+  if (route.name === "settings") {
+    return <SettingsPage />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 px-5 py-6 text-slate-900">
       <div className="mx-auto max-w-4xl space-y-5">
@@ -81,6 +86,14 @@ export default function App() {
             <p className="text-sm text-slate-500">拖入媒体 → 运行 → 查看结构化进度</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="open-settings"
+              onClick={() => navigate({ name: "settings" })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Settings className="h-3.5 w-3.5" /> 设置
+            </button>
             <button
               type="button"
               onClick={() => navigate({ name: "editor", recipeId: null })}

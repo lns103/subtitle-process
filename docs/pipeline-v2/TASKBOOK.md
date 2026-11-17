@@ -1290,16 +1290,21 @@ mkvmerge --version
 `run_state`（SQLite v2），未提交的审核项默认拒绝，接受 `remove` 时仅清空文本、
 不改时间轴；`review.undo` 生成撤销副本。）
 
-### M6 Agent（5 天）
+### M6 Agent（5 天）✅
 
-- [ ] OpenAI 兼容客户端（httpx）。
-- [ ] `agent.sdh_review` 结构化输出。
-- [ ] Key 存钥匙串，设置页可测试连接。
-- [ ] 只发送候选 + 上下文。
-- [ ] 缓存、置信度、删除比例保护。
-- [ ] 30 条评测样本，输出 precision/recall。
+- [x] OpenAI 兼容客户端（httpx）。
+- [x] `agent.sdh_review` 结构化输出。
+- [x] Key 存钥匙串，设置页可测试连接。
+- [x] 只发送候选 + 上下文。
+- [x] 缓存、置信度、删除比例保护。
+- [x] 30 条评测样本，输出 precision/recall。
 
 验收：无 Key 时步骤给出 `1005` 明确错误；有 Key 时只处理候选段，默认不自动删除。
+（`engine/tests/test_agent.py` 用 `httpx.MockTransport` 覆盖 `1005`、`settings.get/set`、
+`secrets.set` 不落 SQLite、`agent.test`、只发送候选+上下文、默认不自动删除、自动应用
+审计与 `review.undo`、删除比例保护、Agent 缓存；`test_sdh_eval.py` 使用
+`tests/fixtures/sdh/samples.jsonl` 30 条标注样本计算 precision/recall/误删率，未配置
+API Key 时跳过真实评测。前端新增 `#/settings` 设置页与连接测试，72 个 Vitest 通过。）
 
 ### M7 合并与发布（7 天）
 

@@ -210,6 +210,9 @@ class HumanReview(Step):
                         "SDH 候选结构非法",
                         {"step": "human.review", "path": artifact.path},
                     )
+                # Agent 自动应用过的项已写入审计，不再重复审核。
+                if candidate.get("applied") is True:
+                    continue
                 item_id = f"rev_{uuid.uuid4().hex[:8]}_{len(items):04d}"
                 action = str(candidate.get("action") or "keep")
                 if action not in ("keep", "remove", "rewrite"):
@@ -218,6 +221,9 @@ class HumanReview(Step):
                         f"未知审核动作: {action}",
                         {"step": "human.review", "action": action},
                     )
+                source = str(candidate.get("source") or "rules")
+                if source not in ("rules", "agent", "human"):
+                    source = "rules"
                 items.append(
                     ReviewItem(
                         id=item_id,
@@ -230,7 +236,7 @@ class HumanReview(Step):
                         confidence=float(candidate.get("confidence") or 0.0),
                         reason=str(candidate.get("reason") or ""),
                         reasons=[str(reason) for reason in candidate.get("reasons") or []],
-                        source="rules",
+                        source=source,  # type: ignore[arg-type]
                         file=file_name,
                         artifact_hash=source_hash,
                     )

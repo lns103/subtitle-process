@@ -71,6 +71,7 @@ class Services:
     store: Any = None
     cache: Any = None
     reviews: Any = None
+    agent: Any = None
     processes: ProcessRegistry = field(default_factory=ProcessRegistry)
 
 
@@ -196,6 +197,7 @@ class JobManager:
         store: Any = None,
         cache: Any = None,
         reviews: Any = None,
+        agent: Any = None,
         workspace: Path | None = None,
         max_parallel_jobs: int = 2,
         retry_delay_s: float = 0.2,
@@ -206,6 +208,7 @@ class JobManager:
         self._store = store
         self._cache = cache
         self._reviews = reviews
+        self._agent = agent
         self._workspace = workspace or Path.cwd()
         self._retry_delay_s = retry_delay_s
         self._jobs: dict[str, Job] = {}
@@ -749,11 +752,13 @@ class JobManager:
                 store=self._store,
                 cache=self._cache,
                 reviews=self._reviews,
+                agent=self._agent,
                 processes=self._processes,
             ),
             project=job.project,
             inputs=inputs,
             run_inputs=tuple(job.inputs),
+            use_cache=job.use_cache,
         )
         step = step_cls()
         attempts = 0

@@ -4,6 +4,20 @@
 
 ## Unreleased — Pipeline v2
 
+### M6 SDH Agent
+
+#### 新增
+- **OpenAI 兼容 Agent 客户端**：`agents/client.py` 基于 `httpx` 调用 `/chat/completions`，支持 `response_format=json_schema`（不兼容端点自动降级 `json_object`）、超时/429/5xx 重试、JSON 解析失败重试 1 次；错误信息与日志不包含 API Key 或字幕正文。
+- **SDH Agent 步骤**：`agent.sdh_review` 接收 `sub.sdh_scan` 的候选，按 5~30 条分批并只附带前后各 N 条**非候选**上下文，调用 `prompts/sdh_v1.md` 得到严格 `keep/remove/rewrite` 结构化决策；绝不发送整片字幕、绝不修改时间轴。默认仅增强候选并交给 `human.review`。
+- **安全策略与审计**：支持 `min_confidence`、`delete_ratio_limit`（默认 30%，超限强制转人工）和默认关闭的 `auto_apply`；自动应用写入 `reviews/audit-<run_id>-agent.jsonl` 并登记审核记录，`review.undo` 可生成撤销副本。Agent 决策按 `(输入哈希 + 选项 + prompt 版本 + model + base_url)` 缓存，`auto_apply` 时禁用缓存。
+- **设置与钥匙串**：新增 `settings.get/set`、`secrets.set`、`agent.test`；API Key 由 `keyring` 写入 Windows Credential Manager，SQLite 只保存非敏感配置并拒绝含 `api_key` 的载荷；无 Key 时步骤与 `agent.test` 返回 `1005`。
+- **设置页**：新增 `#/settings`，可编辑端点/模型/温度/超时/批大小/置信度/删除比例、保存 API Key（空值删除）、测试连接并显示延迟；顶部工具栏增加「设置」入口。
+- **评测**：新增 30 条人工标注 SDH 样本（`tests/fixtures/sdh/samples.jsonl`）与 precision/recall/误删率评测脚本，未配置 API Key 时跳过真实调用。
+
+#### 测试
+- 引擎新增 13 个 M6 用例：`1005`、设置与钥匙串隔离、连接测试、只发送候选+上下文、默认不自动删除、自动应用+审计+撤销、删除比例保护、决策缓存、客户端降级；全量 **189 passed, 1 skipped**。
+- 前端新增设置 store 与路由用例，**72 个 Vitest** 全部通过，`tsc --noEmit` 通过。
+
 ### M5 SDH 规则与人工审核
 
 #### 新增

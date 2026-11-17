@@ -1,5 +1,7 @@
 import { engineCall } from "./rpc";
 import type {
+  AgentTestResult,
+  AppSettings,
   Project,
   ProjectSummary,
   RecipeDefinition,
@@ -125,4 +127,23 @@ export function submitReview(runId: string, decisions: ReviewDecision[]): Promis
 
 export function undoReview(runId: string): Promise<ReviewUndoResult> {
   return engineCall<ReviewUndoResult>("review.undo", { run_id: runId });
+}
+
+// ---- M6 Agent 设置 -----------------------------------------------------
+
+export function getSettings(): Promise<AppSettings> {
+  return engineCall<AppSettings>("settings.get");
+}
+
+export function saveSettings(settings: AppSettings): Promise<AppSettings> {
+  return engineCall<AppSettings>("settings.set", { settings });
+}
+
+/** 写入系统钥匙串；``value`` 为空字符串表示删除已保存的 Key。 */
+export function setSecret(name: string, value: string): Promise<string> {
+  return engineCall<string>("secrets.set", { name, value });
+}
+
+export function testAgent(): Promise<AgentTestResult> {
+  return engineCall<AgentTestResult>("agent.test");
 }

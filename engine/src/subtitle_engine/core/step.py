@@ -46,6 +46,8 @@ class SimpleStepContext:
     #: 配方/CLI 传入的原始输入路径（``pipeline.run.inputs``），供无上游端口的
     #: 步骤（如 ``media.probe``）读取源文件。与端口注入的 ``inputs`` 无关。
     run_inputs: tuple[str, ...] = ()
+    #: 当前 run 是否允许步骤级缓存；Agent 步骤据此决定是否复用决策。
+    use_cache: bool = True
 
 
 class Step(ABC):

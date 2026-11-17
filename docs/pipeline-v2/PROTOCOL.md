@@ -90,7 +90,7 @@ subtitle-engine.exe --rpc stdio
 - 引擎**始终**返回自身 `protocol`，即使客户端版本不同。
 - 前端必须比较 `result.protocol` 与自身支持的版本；不一致时阻止运行并提示升级。
 - Rust supervisor 在 spawn 后 10s 内未完成握手即判定启动失败。
-- `capabilities` 当前为 `["pipeline", "recipes", "project", "review"]`；M6 增加 `agent`。
+- `capabilities` 当前为 `["pipeline", "recipes", "project", "review", "agent"]`；客户端可按能力判断设置页/Agent 入口是否可用。
 
 ## 4. 方法表
 
@@ -117,10 +117,10 @@ subtitle-engine.exe --rpc stdio
 | `review.submit` | `run_id, decisions` | `"ok"` | M5 | 提交审核结果并恢复 run |
 | `review.undo` | `run_id` | `{review_id, audit_path, restored[]}` | M5 | 按审计 JSONL 生成撤销副本（扩展方法） |
 | `artifact.reveal` | `path` | `"ok"` | M3 | 资源管理器定位文件/目录 |
-| `settings.get` | `{}` | `Settings` | M6 | 读取设置 |
-| `settings.set` | `settings` | `Settings` | M6 | 保存设置 |
-| `secrets.set` | `name, value` | `"ok"` | M6 | 写入系统钥匙串 |
-| `agent.test` | `{}` | `{ok, latency_ms}` | M6 | 测试 API 连通性 |
+| `settings.get` | `{}` | `Settings` | M6 | 读取设置（含 `agent.api_key_configured`） |
+| `settings.set` | `settings` | `Settings` | M6 | 保存非敏感设置；包含 API Key 返回 `-32602` |
+| `secrets.set` | `name, value` | `"ok"` | M6 | 写入系统钥匙串；`value=""` 删除该项 |
+| `agent.test` | `{}` | `{ok, latency_ms, model, base_url}` | M6 | 测试 API 连通性；未配置返回 `1005` |
 
 ### 4.1 `pipeline.run`（M1 行为）
 
@@ -243,6 +243,48 @@ subtitle-engine.exe --rpc stdio
 内置项 `builtin=true`，`recipes.save` / `recipes.delete` 会返回 `1001`；用户配方存
 `<data_dir>/recipes/<id>.json`。`translated_to_bilingual` / `batch_shift_fps` 依赖的
 M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标明计划里程碑。
+
+### 4.6 Agent 设置与 `agent.sdh_review`（M6）
+
+`settings.get` / `settings.set` 的完整形态：
+
+```json
+{
+  "agent": {
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "temperature": 0,
+    "timeout_s": 120,
+    "max_retries": 2,
+    "batch_size": 25,
+    "context_size": 2,
+    "min_confidence": 0.85,
+    "auto_apply": false,
+    "delete_ratio_limit": 0.3,
+    "structured_output": "json_schema",
+    "api_key_configured": true
+  }
+}
+```
+
+- `api_key_configured` 是只读状态；`settings.set` 中出现 `api_key` / `secret` / `token`
+  字段会被拒绝（`-32602`），Key 只能通过 `secrets.set` 写入系统钥匙串。
+- `secrets.set` 的 `name` 推荐 `agent.api_key`；密钥值绝不进入 SQLite、配方、日志或
+  错误信息。无钥匙串的 headless 环境可用环境变量
+  `SUBTITLE_ENGINE_AGENT_API_KEY`。
+- `agent.test` 发送最小 `ping` 请求，返回 `latency_ms` 与实际 `model`；未配置返回 `1005`，
+  HTTP/网络失败返回 `1002`。
+- `agent.sdh_review` 输入 `subs` + `candidates`，输出同名字幕与增强后的
+  `candidates`。每批 5~30 条候选并附带前后 `context_size` 行**非候选**上下文；
+  不发送整片字幕，绝不修改时间轴。
+- Agent 输出严格为 `{"items":[{"i","action","replacement","confidence","reason"}]}`；
+  `action` 仅 `keep | remove | rewrite`，`rewrite` 必须有 `replacement`。解析失败重试
+  1 次，仍失败则步骤失败（`1002`），不会静默跳过。
+- 默认 `auto_apply=false`：所有决策写入候选，交给 `human.review`。开启后仅自动应用
+  `confidence >= min_confidence` 的 `remove/rewrite`；删除比例超过
+  `delete_ratio_limit`（默认 30%）强制转人工；自动应用写审计并可用 `review.undo` 撤销。
+- Agent 决策缓存键为 `(输入产物哈希 + 步骤选项 + prompt 版本 + model + base_url +
+  structured_output)`；`auto_apply=true` 时不使用缓存，避免跳过审计。
 
 ## 5. 错误码
 

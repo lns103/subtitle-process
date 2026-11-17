@@ -27,8 +27,20 @@ npm run tauri dev
 
 ```powershell
 npm run build          # 仅前端（tsc + vite）
+npm run test           # Vitest（配方互转 / 连线校验 / SchemaForm / store）
 npm run tauri build    # 完整桌面打包（M7 接入 sidecar 后）
 ```
+
+## 流水线编辑器
+
+首页右上角「配方编辑器」进入 `#/editor`；也可直接打开 `#/editor/<recipeId>`。
+
+- 左侧步骤面板来自引擎 `steps.list`；拖入或点击添加节点。
+- 从输出端口拖到输入端口连线，类型不兼容会被拒绝。
+- 点击节点在右侧编辑参数（由 JSON Schema 自动生成表单）。
+- 「校验」调用 `pipeline.validate`，错误会高亮节点与关联边。
+- 「保存 / 另存为 / 复制预设」在保存前强制校验；内置配方只读。
+- 底部输入框选择运行文件后点击「运行」，直接运行当前画布（无需先保存）。
 
 ## 调试
 

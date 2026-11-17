@@ -69,6 +69,63 @@ export interface RecipeSummary {
   step_count: number;
 }
 
+/** JSON Schema 子集；由引擎的 Pydantic ``model_json_schema()`` 生成。 */
+export type JsonSchema = Record<string, unknown>;
+
+export interface StepSpecPort {
+  kind: string;
+  required: boolean;
+  multiple: boolean;
+}
+
+/** ``steps.list`` 返回的步骤定义。 */
+export interface StepSpec {
+  id: string;
+  title: string;
+  description: string;
+  inputs: Record<string, StepSpecPort>;
+  outputs: Record<string, StepSpecPort>;
+  options_schema: JsonSchema;
+  requires_agent: boolean;
+  deterministic: boolean;
+}
+
+export type RecipeInputKind = "file" | "folder" | "files";
+
+export interface RecipeInput {
+  name: string;
+  kind: RecipeInputKind;
+  accept: string[];
+  required: boolean;
+}
+
+export interface RecipeStep {
+  id: string;
+  uses: string;
+  needs: string[];
+  when: string | null;
+  with: Record<string, unknown>;
+  ui: Record<string, unknown>;
+}
+
+export interface RecipeOutput {
+  from: string;
+  key: string;
+}
+
+/** 完整配方（``recipes.get`` / ``pipeline.validate`` 使用）。 */
+export interface RecipeDefinition {
+  id: string;
+  name: string;
+  version: number;
+  description: string;
+  builtin: boolean;
+  inputs: RecipeInput[];
+  steps: RecipeStep[];
+  outputs: RecipeOutput[];
+  ui: Record<string, unknown>;
+}
+
 export interface ValidationIssue {
   severity: "error" | "warning";
   code: string;

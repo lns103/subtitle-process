@@ -2,7 +2,9 @@ import { engineCall } from "./rpc";
 import type {
   Project,
   ProjectSummary,
+  RecipeDefinition,
   RecipeSummary,
+  StepSpec,
   ValidationResult,
 } from "./models";
 
@@ -58,4 +60,52 @@ export function runRecipe(params: {
 
 export function revealPath(path: string): Promise<string> {
   return engineCall<string>("artifact.reveal", { path });
+}
+
+// ---- M4 自由连线编辑器 -------------------------------------------------
+
+export function listSteps(): Promise<StepSpec[]> {
+  return engineCall<StepSpec[]>("steps.list");
+}
+
+export function getRecipe(id: string): Promise<RecipeDefinition> {
+  return engineCall<RecipeDefinition>("recipes.get", { id });
+}
+
+export function saveRecipe(recipe: RecipeDefinition): Promise<RecipeDefinition> {
+  return engineCall<RecipeDefinition>("recipes.save", { recipe });
+}
+
+export function deleteRecipe(id: string): Promise<string> {
+  return engineCall<string>("recipes.delete", { id });
+}
+
+/** 直接校验画布上的配方对象（可能尚未保存）。 */
+export function validateRecipePayload(
+  recipe: RecipeDefinition,
+  projectId?: string,
+): Promise<ValidationResult> {
+  return engineCall<ValidationResult>("pipeline.validate", {
+    recipe,
+    ...(projectId ? { project_id: projectId } : {}),
+  });
+}
+
+/** 直接运行画布上的配方对象（可能尚未保存）。 */
+export function runRecipePayload(params: {
+  recipe: RecipeDefinition;
+  inputs: string[];
+  projectId?: string;
+  options?: Record<string, unknown>;
+}): Promise<{ job_id: string; run_id: string }> {
+  return engineCall<{ job_id: string; run_id: string }>("pipeline.run", {
+    recipe: params.recipe,
+    inputs: params.inputs,
+    ...(params.projectId ? { project_id: params.projectId } : {}),
+    ...(params.options ? { options: params.options } : {}),
+  });
+}
+
+export function cancelJob(jobId: string): Promise<string> {
+  return engineCall<string>("job.cancel", { job_id: jobId });
 }

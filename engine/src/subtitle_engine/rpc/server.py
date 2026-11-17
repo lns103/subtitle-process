@@ -387,6 +387,17 @@ class RpcServer:
             recipe = Recipe.model_validate(raw)
         except Exception as exc:  # noqa: BLE001 - 转成 1001
             raise JsonRpcError(RECIPE_INVALID, f"配方校验失败: {exc}") from exc
+        # TASKBOOK §19：保存前必须通过 pipeline.validate，避免自由连线产生非法图。
+        report = validate_recipe(
+            recipe,
+            agent_configured=self._agent_configured(),
+        )
+        if not report.ok:
+            raise JsonRpcError(
+                RECIPE_INVALID,
+                "配方校验失败，无法保存",
+                report.model_dump(mode="json", exclude_none=True),
+            )
         saved = self._recipes.save(recipe)
         return saved.model_dump(mode="json", by_alias=True, exclude_none=True)
 

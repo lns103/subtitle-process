@@ -4,6 +4,17 @@
 
 ## Unreleased — Pipeline v2
 
+### M4 自由连线编辑器
+
+#### 新增
+- **画布编辑器**：`/editor`（hash 路由 `#/editor/<recipeId>`）接入 `@xyflow/react` v12；左侧步骤面板数据来自 `steps.list`，支持搜索、点击/拖拽添加；节点按输入/输出端口渲染 handle，并实时显示参数数量、`when` 条件与 Agent 标记。
+- **类型兼容连线**：`lib/recipeGraph.ts` 提供端口兼容规则（同 kind 或 `any`）、`needs` 由边推导、配方 ↔ 画布互转；画布 `isValidConnection` 与 store 双重校验，非法连线给出中文原因。
+- **SchemaForm 参数面板**：自研轻量表单渲染 Pydantic `model_json_schema()`，支持 string/number/integer/boolean/enum/array/object、`$ref`、nullable `anyOf`、必填标记与 JSON 语法提示；未知 Schema 退化为只读 JSON。
+- **配方管理**：保存/另存为/复制预设（内置配方只读，只能复制后保存）；保存前强制执行 `pipeline.validate`，未通过时阻止保存并高亮问题。引擎侧 `recipes.save` 也复用同一套校验，避免绕过 UI 写入非法图。
+- **编辑体验**：撤销/重做（`zundo`，拖动合并为一步）、dagre 自动布局、框选、多选移动、删除（同时清理关联边）、缩放、运行输入选择与底部运行状态条。
+- **校验定位**：`pipeline.validate` 的 `step_id` / `port` / `cycle` 映射到节点徽标与错误边；右侧面板展示节点问题与配方整体问题。
+- **测试**：前端引入 Vitest + Testing Library，39 个用例覆盖配方互转、连接校验、布局、问题定位、Zustand 撤销/重做与 SchemaForm；引擎新增编辑器配方保存/校验/真实 MKV 端到端测试，引擎测试增至 **166 个**，全部通过。`tsc && vite build` 通过，并用 CDP + 假 Tauri invoke 在真实 WebView 浏览器内核中验证画布、校验高亮、另存为与运行流程。
+
 ### M3 项目与配方
 
 #### 新增

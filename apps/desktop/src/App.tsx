@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Server } from "lucide-react";
+import { RefreshCw, Server, Workflow } from "lucide-react";
 import { DropZone } from "./features/dropzone/DropZone";
+import { EditorPage } from "./features/editor/EditorPage";
 import { RunView } from "./features/run-view/RunView";
 import { onEngineEvent, onEngineStatus } from "./lib/events";
 import type { Project } from "./lib/models";
 import { getEngineStatus, restartEngine, type EngineStatus } from "./lib/rpc";
+import { navigate, useHashRoute } from "./lib/router";
 import { useProjectStore } from "./stores/projectStore";
 import { useRunStore } from "./stores/runStore";
 
@@ -27,6 +29,7 @@ function statusLabel(status: EngineStatus): { text: string; tone: string } {
 export default function App() {
   const [status, setStatus] = useState<EngineStatus>({ state: "starting" });
   const [paths, setPaths] = useState<string[]>([]);
+  const route = useHashRoute();
 
   useEffect(() => {
     let disposed = false;
@@ -60,6 +63,10 @@ export default function App() {
   const addPaths = useCallback((incoming: string[]) => setPaths(incoming), []);
   const badge = statusLabel(status);
 
+  if (route.name === "editor") {
+    return <EditorPage initialRecipeId={route.recipeId} paths={paths} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 px-5 py-6 text-slate-900">
       <div className="mx-auto max-w-4xl space-y-5">
@@ -69,6 +76,13 @@ export default function App() {
             <p className="text-sm text-slate-500">拖入媒体 → 运行 → 查看结构化进度</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate({ name: "editor", recipeId: null })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Workflow className="h-3.5 w-3.5" /> 配方编辑器
+            </button>
             <span className={`inline-flex max-w-md items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${badge.tone}`}>
               <Server className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{badge.text}</span>

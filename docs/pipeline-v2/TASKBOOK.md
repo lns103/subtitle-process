@@ -1259,16 +1259,20 @@ mkvmerge --version
 `project.create → pipeline.run(video_to_clean_srt) → project.get`，并重启
 `RpcServer` 验证项目仍在；前端新增「最近项目」与交接卡片。）
 
-### M4 自由连线编辑器（7 天）
+### M4 自由连线编辑器（7 天）✅
 
-- [ ] React Flow 画布 + 步骤面板。
-- [ ] 类型兼容连线校验。
-- [ ] SchemaForm 参数面板。
-- [ ] 保存/另存为/复制预设。
-- [ ] 撤销/重做、自动布局。
-- [ ] 校验错误定位到节点/边。
+- [x] React Flow 画布 + 步骤面板。
+- [x] 类型兼容连线校验。
+- [x] SchemaForm 参数面板。
+- [x] 保存/另存为/复制预设。
+- [x] 撤销/重做、自动布局。
+- [x] 校验错误定位到节点/边。
 
 验收：用户从空白画布搭出 `probe → extract → normalize → export` 并成功运行。
+（`apps/desktop/src/lib/recipeGraph.test.ts` 覆盖配方↔画布互转、端口兼容、自动布局与问题定位；
+`src/stores/editorStore.test.ts` 覆盖连线、撤销/重做与拖动历史；`src/features/editor/SchemaForm.test.tsx`
+覆盖 JSON Schema 表单。前端 39 个 Vitest 全部通过，`tsc && vite build` 通过；
+`engine/tests/test_editor_recipes.py` 用真实 MKV 跑通编辑器产出的配方并可保存/重载。）
 
 ### M5 SDH 规则与审核（5 天）
 

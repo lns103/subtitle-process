@@ -104,19 +104,29 @@ npm run tauri dev                         # 开发模式（自动用 uv 拉起�
    产物会按 Rust target triple 复制为
    `apps/desktop/src-tauri/binaries/subtitle-engine-x86_64-pc-windows-msvc.exe`。
 
-2. 构建安装包：
+2. 构建安装包（预发布版本只打 NSIS；稳定版默认 MSI + NSIS）：
 
    ```powershell
    cd apps/desktop
-   npm run tauri build
+   npm run tauri build -- --bundles nsis
    ```
 
-3. 自动更新：`tauri.conf.json` 的 `plugins.updater` 已预留 endpoints 与 pubkey 占位，
+3. 生成免安装 ZIP：
+
+   ```powershell
+   # 仓库根目录
+   .\scripts\package-portable.ps1
+   ```
+
+   产物：`apps/desktop/src-tauri/target/release/bundle/portable/字幕工具箱_<version>_x64-portable.zip`，
+   内含 `subtitle-desktop.exe`、`subtitle-engine.exe` 与 `README.txt`。
+
+4. 自动更新：`tauri.conf.json` 的 `plugins.updater` 已预留 endpoints 与 pubkey 占位，
    发布前用 `tauri signer generate` 生成密钥并替换公钥，同时开启
    `bundle.createUpdaterArtifacts`。单实例与引擎崩溃恢复由 `tauri-plugin-single-instance`
    与 `src-tauri/src/engine/supervisor.rs` 提供。
 
-4. 端到端冒烟：
+5. 端到端冒烟：
 
    ```powershell
    .\scripts\e2e.ps1
@@ -137,8 +147,10 @@ artifacts/<sha256>/      # 内容寻址产物
 
 | Workflow | 触发 | 内容 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push / PR 到 `master`、`main` | 引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` |
-| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri 安装包 → 附加到 GitHub Release |
+| `.github/workflows/ci.yml` | push / PR 到 `master`、`main` | 引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check`；push 时额外构建并上传 Windows 安装包 + 免安装 ZIP |
+| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri 安装包 + 免安装 ZIP → 附加到 GitHub Release |
+
+CI 成功后可在该次 run 的 **Artifacts** 下载 `subtitle-process-windows-<sha>`，包含 NSIS 安装包和 portable ZIP。
 
 预发布版本（`-alpha` / `-beta` / `-rc`）只生成 NSIS 安装包，因为 WiX/MSI 要求 prerelease 为纯数字；稳定版会同时生成 MSI 与 NSIS。发布前把 Tauri updater 私钥放到仓库 Secrets：`TAURI_SIGNING_PRIVATE_KEY`、
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。未配置时 CI 会自动关闭 updater 签名产物并给出警告，

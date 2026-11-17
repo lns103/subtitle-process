@@ -1,0 +1,31 @@
+id: demo
+name: 示例流水线（三步缓存）
+version: 1
+description: M1 冒烟配方：生成 → 变换 → 汇总，全部为确定性步骤，第二次运行应全命中缓存。
+builtin: true
+inputs:
+  - name: file
+    kind: file
+    accept: [".mkv", ".mp4", ".mov", ".avi", ".ts", ".srt", ".ass", ".vtt"]
+    required: false
+steps:
+  - id: generate
+    uses: demo.generate
+    with:
+      text: hello pipeline
+      lines: 2
+  - id: transform
+    uses: demo.transform
+    needs: [generate]
+    with:
+      mode: upper
+      prefix: "> "
+  - id: consume
+    uses: demo.consume
+    needs: [transform]
+    with:
+      suffix: " done"
+outputs:
+  - from: consume
+    key: text
+ui: {}

@@ -1,0 +1,56 @@
+id: video_to_clean_srt
+name: 视频 → 规范字幕
+version: 1
+description: 提取内嵌字幕 → 清理 → SDH 扫描/人工审核 → 校验 → 导出干净 SRT。
+builtin: true
+inputs:
+  - name: video
+    kind: file
+    accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"]
+    required: true
+steps:
+  - id: probe
+    uses: media.probe
+  - id: extract
+    uses: media.extract_subtitles
+    needs: [probe]
+    with:
+      selection: auto
+      prefer_embedded: true
+  - id: normalize
+    uses: sub.normalize
+    needs: [extract]
+    with:
+      strip_html: true
+      merge_short: true
+      merge_identical: true
+      clean_person: true
+      clean_uppercase: false
+      zh_punctuation: false
+  - id: sdh_scan
+    uses: sub.sdh_scan
+    needs: [normalize]
+    with:
+      rules: [bracketed, parenthetical, music, speaker, uppercase, arrow, ellipsis_action]
+      uppercase_min_length: 4
+  - id: sdh_review
+    uses: human.review
+    needs: [sdh_scan]
+    with: {}
+  - id: validate
+    uses: sub.validate
+    needs: [sdh_review]
+    with:
+      fail_on_error: false
+  - id: export
+    uses: sub.export
+    needs: [validate]
+    with:
+      format: srt
+      suffix: ".clean"
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui: {}

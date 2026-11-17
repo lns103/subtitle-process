@@ -1,0 +1,30 @@
+{"id":"s01","text":"[door slams]","expected_action":"remove","expected_after":""}
+{"id":"s02","text":"(sighs)","expected_action":"remove","expected_after":""}
+{"id":"s03","text":"♪ music playing ♪","expected_action":"remove","expected_after":""}
+{"id":"s04","text":"BEN: Hello there.","expected_action":"rewrite","expected_after":"Hello there."}
+{"id":"s05","text":"THIS IS VERY LOUD","expected_action":"remove","expected_after":""}
+{"id":"s06","text":">> move quickly","expected_action":"rewrite","expected_after":"move quickly"}
+{"id":"s07","text":"... (laughs)","expected_action":"remove","expected_after":""}
+{"id":"s08","text":"- MARY: I know.","expected_action":"rewrite","expected_after":"I know."}
+{"id":"s09","text":"[phone rings] I need to go.","expected_action":"rewrite","expected_after":"I need to go."}
+{"id":"s10","text":"I said (quietly) that we should leave.","expected_action":"rewrite","expected_after":"I said that we should leave."}
+{"id":"s11","text":"What do you mean?","expected_action":"keep","expected_after":"What do you mean?"}
+{"id":"s12","text":"Let's get out of here.","expected_action":"keep","expected_after":"Let's get out of here."}
+{"id":"s13","text":"[gunshot]","expected_action":"remove","expected_after":""}
+{"id":"s14","text":"(whispers) Run.","expected_action":"rewrite","expected_after":"Run."}
+{"id":"s15","text":"JOHN: Where were you?","expected_action":"rewrite","expected_after":"Where were you?"}
+{"id":"s16","text":"♪ La la la ♪","expected_action":"remove","expected_after":""}
+{"id":"s17","text":">> Chapter 2","expected_action":"rewrite","expected_after":"Chapter 2"}
+{"id":"s18","text":"[laughs] That's funny.","expected_action":"rewrite","expected_after":"That's funny."}
+{"id":"s19","text":"... (phone buzzing)","expected_action":"remove","expected_after":""}
+{"id":"s20","text":"WAIT FOR ME!","expected_action":"keep","expected_after":"WAIT FOR ME!"}
+{"id":"s21","text":"[music swells]","expected_action":"remove","expected_after":""}
+{"id":"s22","text":"(clears throat) Well, okay.","expected_action":"rewrite","expected_after":"Well, okay."}
+{"id":"s23","text":"SARAH: I am not leaving.","expected_action":"rewrite","expected_after":"I am not leaving."}
+{"id":"s24","text":"[distant thunder]","expected_action":"remove","expected_after":""}
+{"id":"s25","text":">> Meanwhile...","expected_action":"rewrite","expected_after":"Meanwhile..."}
+{"id":"s26","text":"(laughing) You should see your face.","expected_action":"rewrite","expected_after":"You should see your face."}
+{"id":"s27","text":"This is (not) a drill.","expected_action":"keep","expected_after":"This is (not) a drill."}
+{"id":"s28","text":"[ALARM BLARING]","expected_action":"remove","expected_after":""}
+{"id":"s29","text":"NARRATOR: Long ago.","expected_action":"rewrite","expected_after":"Long ago."}
+{"id":"s30","text":"I can't believe it.","expected_action":"keep","expected_after":"I can't believe it."}

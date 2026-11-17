@@ -1,78 +1,149 @@
 # Subtitle Process / 字幕工具箱
 
-这是一个基于 Python 和 CustomTkinter 开发的本地字幕处理工具箱，旨在帮助字幕组或个人用户快速清理、格式化和合并字幕文件。
+字幕流水线 v2：一个以 **Tauri v2 + React + Python sidecar** 重写的本地字幕处理工作台。
 
-## 功能特性
+> 旧的 CustomTkinter 工具箱已从主线移除，完整实现存档在
+> `archive/legacy-toolbox` 分支；仅把 golden 对比所需的领域算法冻结在
+> `engine/tests/legacy_reference/`。
 
-### 1. 字幕清理与格式化
-界面提供三个独立的拖拽处理区域：
-- **清理 SRT**: 
-  - 自动移除字幕中的括号备注 `(text)`, `[text]`。
-  - 移除人物对话前缀（如 `BEN:`）。
-  - 移除 HTML 标签（如 `<i>`, `<b>`, `{\an2}`）。
-  - **智能统计**: 处理完成后会显示移除的括号、人物标签数量，以及**合并的短字幕块数量**。
-  - *可选功能*: 支持根据时间戳间隔自动合并短句。
-- **格式化中文**: 
-  - 统一中文标点符号（替换英文逗号、句号等）。
-  - 去除不必要的空格。
-- **ASS 描边缩放**: 
-  - 以 1080p 分辨率为目标，固定 ASS 字幕的描边粗细，增加部分情况下libass渲染的兼容性。
+## 核心流程
 
-### 2. 双语字幕合并
-- 将对应的 `.srt` 和 `.zh.srt`(可自定义后缀) 文件合并为 ASS 双语字幕。
-- 支持批量拖拽文件夹处理。
-- 允许自定义字幕样式。
+1. **视频 → 规范字幕**
+   拖入视频 → ffprobe 分析 → 提取内嵌字幕（FFmpeg / MKVToolNix）→ 规范化（去括号/人名/标签、合并短句）→
+   SDH 规则扫描 →（可选）AI 审核 → 校验 → 导出 `clean/<stem>.clean.srt`。
+2. **译文 → 双语 ASS**
+   用 LinguaGacha 等工具人工翻译后，把译文 SRT 拖回 → 按文件名 + 时间轴相似度匹配原项目 →
+   校验 → 合并为双行 ASS（保留重复片段字体对齐）→ 导出 `output/<stem>.zh&en.ass`。
 
-### 3. 字幕批量重命名
-- 根据视频文件名（SxxExx 格式）自动匹配并重命名对应的字幕文件。
-- 适合整理剧集字幕。
+流水线本身是**自由连线的 DAG**：内置 4 个只读模板（`video_to_clean_srt`、`translated_to_bilingual`、
+`batch_normalize`、`batch_shift_fps`），可在编辑器中复制后任意编排。步骤参数由 Pydantic
+`model_json_schema()` 自动生成表单，前端不硬编码。
 
-### 4. 帧率转换 & 时间轴平移
-- 对包含时间轴的字幕 (SRT, ASS) 进行帧率转换。
-- 支持各大常见帧率间的转换（如 23.976, 24, 25, 29.97, 30, 59.94, 60），自动重算时间轴。
-- 支持批量拖拽文件或文件夹，原文件会自动备份为 `.bak`。
+## 架构
 
-### 5. 字幕提取 (FFmpeg / MKVToolNix)
-- **功能**: 从视频容器 (MP4, MKV) 中提取字幕流。
-- **智能选择**: 自动识别默认音频轨道，并优先选中与音频语言一致的字幕轨道。
-- **自动过滤**: 默认排除 `hearing_impaired` (SDH) 和 `forced` 字幕。
-- **格式转换**: 
-  - 自动将 `mov_text` (MP4) 转换为 `.srt` 格式。
-  - 对于检测到 `webvtt` 字幕轨道，可选择“转为SRT”。
-- **MKV 回落机制**: 当 FFmpeg 无法正确识别某些 MKV 文件的字幕流编码时，程序会自动回落调用 `mkvmerge` (解析编码) 和 `mkvextract` (执行提取) 以确保正常导出。
-- **环境要求**: 此功能需要系统环境变量 PATH 中包含 `ffmpeg` 和 `ffprobe`。如需使用 MKV 处理回落功能，还需额外包含并配置好 `mkvmerge` 与 `mkvextract`。
+```
+Tauri v2 Shell (Rust)
+  ├─ 窗口 / 原生拖拽 / 单实例 / 自动更新
+  ├─ 文件对话框 / 打开产物
+  └─ Sidecar Supervisor（启动、健康检查、崩溃重启、进程树清理）
+        ↕ stdin/stdout：JSONL + JSON-RPC 2.0
+React 19 前端（React Flow / Zustand / Monaco / Tailwind）
+        ↕
+Python 3.15 Engine（headless）
+  RPC Server → Job Manager → Pipeline Runner → Steps
+  Artifact Store / SQLite / Event Bus / Agent Client / ffmpeg·mkv 适配层
+```
 
-## 安装与运行
+- **stdout 只输出协议 JSON**，日志与 traceback 全部走 stderr。
+- 引擎可脱离 GUI 用 CLI 运行，便于测试与未来 MCP 化。
+- API Key 存 Windows 凭据管理器（`keyring`），不写入配置或日志。
 
-### 依赖安装
-本项目使用 [uv](https://docs.astral.sh/uv/) 管理依赖。请确保已安装 uv 和 Python 3.15+，然后同步依赖并创建虚拟环境：
+## 目录结构
 
-```bash
+```
+engine/                         # Python 引擎（独立 uv 项目）
+  src/subtitle_engine/
+    rpc/                        # JSON-RPC framing / server / errors
+    core/                       # models, step, registry, pipeline, store, cache, events
+    domain/                     # 纯算法：srt/clean/validate/media/sdh/merge/timing/rename/outline
+    steps/                      # 步骤实现与注册
+    recipes/                    # 4 个内置配方
+    agents/                     # OpenAI 兼容客户端与 SDH prompt
+  tests/                        # pytest（协议、Runner、步骤、golden、E2E）
+    legacy_reference/           # 旧工具箱领域算法冻结副本（仅 golden 对比）
+apps/desktop/                   # Tauri + React 桌面端
+  src/                          # 页面、React Flow 编辑器、审核、设置
+  src-tauri/                    # Rust 壳与 sidecar supervisor
+scripts/                        # build-engine.ps1 / e2e.ps1
+docs/pipeline-v2/               # TASKBOOK.md / PROTOCOL.md
+```
+
+## 环境要求
+
+| 工具 | 版本 |
+|---|---|
+| Python | 3.15 |
+| uv | 最新稳定版 |
+| Node.js | 22+ |
+| Rust | stable（`x86_64-pc-windows-msvc`） |
+| FFmpeg | 6+（含 ffprobe） |
+| MKVToolNix | 最新稳定版（MKV 字幕回落） |
+
+## 开发
+
+### 引擎
+
+```powershell
+cd engine
 uv sync
+uv run pytest -q                          # 全量测试
+uv run python -m subtitle_engine --rpc stdio
+uv run python -m subtitle_engine run src/subtitle_engine/recipes/video_to_clean_srt.yaml --input .\demo.mkv
 ```
 
-> 依赖锁定在 `uv.lock`，版本与元数据定义在 `pyproject.toml`。
+### 桌面端
 
-### 运行
-运行主程序：
-
-```bash
-uv run python app_ui.py
+```powershell
+cd apps/desktop
+npm install
+npm run test                              # Vitest
+npm run build                             # tsc + vite
+npm run tauri dev                         # 开发模式（自动用 uv 拉起引擎）
 ```
 
-### 打包 (PyInstaller)
-如果需要打包为独立 exe 文件，请运行以下命令：
-```bash
-uv run pyinstaller --noconsole --onefile app_ui.py --name SubtitleProcess
+开发模式优先使用 `uv run python -m subtitle_engine --rpc stdio`，无需每次打包 sidecar。
+
+## 打包与发布
+
+1. 构建 sidecar（Nuitka onefile，失败自动回退 PyInstaller onedir）：
+
+   ```powershell
+   .\scripts\build-engine.ps1
+   ```
+
+   产物会按 Rust target triple 复制为
+   `apps/desktop/src-tauri/binaries/subtitle-engine-x86_64-pc-windows-msvc.exe`。
+
+2. 构建安装包：
+
+   ```powershell
+   cd apps/desktop
+   npm run tauri build
+   ```
+
+3. 自动更新：`tauri.conf.json` 的 `plugins.updater` 已预留 endpoints 与 pubkey 占位，
+   发布前用 `tauri signer generate` 生成密钥并替换公钥，同时开启
+   `bundle.createUpdaterArtifacts`。单实例与引擎崩溃恢复由 `tauri-plugin-single-instance`
+   与 `src-tauri/src/engine/supervisor.rs` 提供。
+
+4. 端到端冒烟：
+
+   ```powershell
+   .\scripts\e2e.ps1
+   ```
+
+## 数据目录
+
+Windows 为 `%APPDATA%/SubtitleProcess`，包含：
+
+```
+projects/<project_id>/   # 每个项目的工作区（source/extracted/clean/output/reviews/logs）
+recipes/                 # 用户自定义配方
+store.db                 # 项目、运行、产物、审核、设置（SQLite）
+artifacts/<sha256>/      # 内容寻址产物
 ```
 
-## 使用说明
-1. 启动程序后，选择左侧导航栏切换功能模块。
-2. 大多数功能支持直接**拖拽文件或文件夹**到指定区域。
-3. 日志窗口会实时显示处理进度和统计结果。
+## 持续集成与发布
 
-## 字体说明
-本程序默认使用 **Microsoft YaHei (微软雅黑)** 字体，以确保简体中文和日文汉字字形的正确显示。
+| Workflow | 触发 | 内容 |
+|---|---|---|
+| `.github/workflows/ci.yml` | push / PR 到 `master`、`main` | 引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` |
+| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri MSI / NSIS 安装包 → 附加到 GitHub Release |
+
+发布前把 Tauri updater 私钥放到仓库 Secrets：`TAURI_SIGNING_PRIVATE_KEY`、
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。未配置时 CI 会自动关闭 updater 签名产物并给出警告，
+普通安装包仍会照常构建。配置步骤见 `apps/desktop/src-tauri/UPDATER.md`。
 
 ## 许可证
+
 MIT License

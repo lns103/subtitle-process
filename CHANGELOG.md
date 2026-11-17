@@ -2,6 +2,126 @@
 
 所有针对当前软件功能和 UI 界面的重要更改都会记录在此文件中。
 
+## Unreleased — Pipeline v2
+
+### 主线清理与持续集成
+
+#### 变更
+- **移除旧工具箱**：从主线删除 `app_ui.py`、`ui/`、`tools/`、根 `version.py`、根 `pyproject.toml` 与 `uv.lock`；旧版完整实现保存在 `archive/legacy-toolbox` 分支（原 `dev`）。
+- **冻结 golden 基准**：将 golden 测试依赖的 7 个旧领域模块移入 `engine/tests/legacy_reference/`，测试改为包内导入并新增说明 README；生产代码不得引用该目录。
+- **GitHub Workflows**：用 `ci.yml` 替换旧的 PyInstaller 单文件构建，新增引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` 三条检查；`release.yml` 改为先构建 Python sidecar，再打包 Tauri MSI/NSIS，并在缺少 updater 私钥时自动关闭签名产物、正常产出普通安装包。
+- **文档**：`README.md` 与 `AGENTS.md` 更新为 pipeline-v2 架构，补充 CI/发布流程与存档分支说明。
+
+## M7 合并与发布
+
+#### 新增
+- **领域层移植**：`domain/merge.py` 忠实移植旧 `tools/merge_srt.py`（重复片段极大匹配 + 贪心选择、精确时间戳匹配、5 条模糊匹配规则、连通分量合并、`classify_and_match_files`、ASS 渲染），并提供 `parse_srt_entries` 保持毫秒截断与旧实现逐字节一致；新增 `domain/timing.py`（帧率/时间平移）、`domain/rename.py`（SxxExx 重命名计划，纯函数）、`domain/outline.py`（ASS 描边缩放）。
+- **M7 步骤**：`sub.match_project` 按项目产物/`clean/`/`extracted/` 与同目录原文匹配译文，综合 stem 与时间轴相似度（段落数差异 < 10%、首尾差 < 1s），低置信度时以结构化候选列表报错；`sub.merge_bilingual` 按 `pair_id` 分组生成双语 ASS，保留旧版重复片段字体对齐；新增 `sub.fps_convert` / `sub.shift_time` / `sub.rename`（支持 dry-run）/ `sub.outline_scale`。
+- **流程 2 端到端**：RPC 与 CLI 均可完成「视频 → 干净 SRT → 手动翻译 → 拖回译文 → 双语 ASS」，项目状态从 `waiting_translation` 变为 `done`；CLI 在 `--project-id` 时加载项目并切换到其工作区，使 `sub.match_project` 与 RPC 行为一致。
+- **前端流程 2**：拖入纯字幕时进入「译文 → 双语 ASS」面板，按文件名推荐目标项目（优先 `waiting_translation`），可手动切换；运行前校验配方，完成后展示 `.ass` 产物并支持打开文件夹/复制路径。新增 `lib/flow2.ts` 纯逻辑与 `HandoffCard` 的「继续合并译文」入口，抽取 `RunFeedback` 复用进度/日志。
+- **打包与发布**：新增 `scripts/build-engine.ps1`（Nuitka onefile 优先、失败回退 PyInstaller onedir、按 `rustc` host triple 复制为 `binaries/subtitle-engine-<triple>.exe`）与 `scripts/e2e.ps1`（ffmpeg 生成真实 MKV，跑通两阶段 CLI）。`tauri.conf.json` 增加 `bundle.externalBin`、`createUpdaterArtifacts` 与 `plugins.updater` 占位；Rust 侧注册 `tauri-plugin-single-instance`（最先注册）、`updater`、`store`，新增 `check_for_updates` 命令与 `UPDATER.md` 说明；权限文件补充 `store:default` / `updater:default`。
+- **文档**：根 `README.md` 重写为 pipeline-v2 架构、开发与打包说明；`engine/README.md` 补充 M7 步骤与领域模块。
+
+#### 测试
+- 引擎新增 35 个 M7 用例：合并算法与旧 `tools/merge_srt.py` 逐字节 golden、文件匹配、低置信度候选、流程 2 RPC 端到端与重启；帧率/平移与旧实现 golden；重命名/描边缩放与旧实现 golden。全量 **224 passed, 1 skipped**，`ruff check` 通过。
+- 前端新增流程 2 纯函数与交互用例，**85 个 Vitest** 全部通过，`tsc && vite build` 通过。
+- `scripts/e2e.ps1` 两阶段真实 ffmpeg 冒烟通过。
+- 说明：本机未安装 Rust 工具链，Tauri 打包/单实例/自动更新代码未在本机编译验证；需在具备 `rustc` + `x86_64-pc-windows-msvc` 的环境执行 `npm run tauri build` 复核。
+
+### M6 SDH Agent
+
+#### 新增
+- **OpenAI 兼容 Agent 客户端**：`agents/client.py` 基于 `httpx` 调用 `/chat/completions`，支持 `response_format=json_schema`（不兼容端点自动降级 `json_object`）、超时/429/5xx 重试、JSON 解析失败重试 1 次；错误信息与日志不包含 API Key 或字幕正文。
+- **SDH Agent 步骤**：`agent.sdh_review` 接收 `sub.sdh_scan` 的候选，按 5~30 条分批并只附带前后各 N 条**非候选**上下文，调用 `prompts/sdh_v1.md` 得到严格 `keep/remove/rewrite` 结构化决策；绝不发送整片字幕、绝不修改时间轴。默认仅增强候选并交给 `human.review`。
+- **安全策略与审计**：支持 `min_confidence`、`delete_ratio_limit`（默认 30%，超限强制转人工）和默认关闭的 `auto_apply`；自动应用写入 `reviews/audit-<run_id>-agent.jsonl` 并登记审核记录，`review.undo` 可生成撤销副本。Agent 决策按 `(输入哈希 + 选项 + prompt 版本 + model + base_url)` 缓存，`auto_apply` 时禁用缓存。
+- **设置与钥匙串**：新增 `settings.get/set`、`secrets.set`、`agent.test`；API Key 由 `keyring` 写入 Windows Credential Manager，SQLite 只保存非敏感配置并拒绝含 `api_key` 的载荷；无 Key 时步骤与 `agent.test` 返回 `1005`。
+- **设置页**：新增 `#/settings`，可编辑端点/模型/温度/超时/批大小/置信度/删除比例、保存 API Key（空值删除）、测试连接并显示延迟；顶部工具栏增加「设置」入口。
+- **评测**：新增 30 条人工标注 SDH 样本（`tests/fixtures/sdh/samples.jsonl`）与 precision/recall/误删率评测脚本，未配置 API Key 时跳过真实调用。
+
+#### 测试
+- 引擎新增 13 个 M6 用例：`1005`、设置与钥匙串隔离、连接测试、只发送候选+上下文、默认不自动删除、自动应用+审计+撤销、删除比例保护、决策缓存、客户端降级；全量 **189 passed, 1 skipped**。
+- 前端新增设置 store 与路由用例，**72 个 Vitest** 全部通过，`tsc --noEmit` 通过。
+
+### M5 SDH 规则与人工审核
+
+#### 新增
+- **SDH 规则扫描**：`domain/sdh.py` 提供 `bracketed` / `parenthetical` / `music` / `speaker` / `uppercase` / `arrow` / `ellipsis_action` 七类 reason code，只标记不修改；`sub.sdh_scan` 输出 `candidates` 端口（JSON）并透传原字幕，`video_to_clean_srt` 在 `sub.normalize` 后接入扫描与审核。
+- **HITL 审核**：`human.review` 步骤把候选转为待审项并抛出暂停信号，Runner 将 run/项目状态置为 `waiting_review`，发出 `review.requested`；`review.list` / `review.submit` / `review.undo` 完成拉取、提交与撤销。决策支持接受/拒绝/人工改写，未决策项默认拒绝，接受删除时仅清空文本、绝不改时间轴。
+- **断点续跑**：SQLite 迁移至 v2，新增 `run_state` 保存配方、选项、已完成步骤产物与事件序号；应用重启后 `job.status`、`review.list` 仍可查询，提交后从暂停步骤继续执行且不重算上游。
+- **审计**：审核结果写 `<workspace>/reviews/audit-<run_id>.jsonl`（header + 逐条 before/after/action/confidence/reason），`review.undo` 依据审计生成撤销副本。
+- **审核 UI**：新增 `#/review/<runId>` 页面，按置信度排序待审项，Monaco DiffEditor 对比 before/after，支持人工改写、单条接受/拒绝、批量接受高置信度、全部拒绝、提交与撤销，快捷键 `J/K/A/R`；运行页 `waiting_review` 时提供「前往审核」入口。
+- **测试**：引擎新增 M5 审核测试（规则 reason、20 条候选标记、暂停/提交/应用、审计撤销、引擎重启续跑、无候选直通），引擎测试增至 **177 个**；前端新增 reviewStore / ReviewPage / router / runStore 用例（含事件早于 `pipeline.run` 响应到达的乱序保护），全部 62 个前端测试通过，`tsc && vite build` 通过。
+
+### M4 自由连线编辑器
+
+#### 新增
+- **画布编辑器**：`/editor`（hash 路由 `#/editor/<recipeId>`）接入 `@xyflow/react` v12；左侧步骤面板数据来自 `steps.list`，支持搜索、点击/拖拽添加；节点按输入/输出端口渲染 handle，并实时显示参数数量、`when` 条件与 Agent 标记。
+- **类型兼容连线**：`lib/recipeGraph.ts` 提供端口兼容规则（同 kind 或 `any`）、`needs` 由边推导、配方 ↔ 画布互转；画布 `isValidConnection` 与 store 双重校验，非法连线给出中文原因。
+- **SchemaForm 参数面板**：自研轻量表单渲染 Pydantic `model_json_schema()`，支持 string/number/integer/boolean/enum/array/object、`$ref`、nullable `anyOf`、必填标记与 JSON 语法提示；未知 Schema 退化为只读 JSON。
+- **配方管理**：保存/另存为/复制预设（内置配方只读，只能复制后保存）；保存前强制执行 `pipeline.validate`，未通过时阻止保存并高亮问题。引擎侧 `recipes.save` 也复用同一套校验，避免绕过 UI 写入非法图。
+- **编辑体验**：撤销/重做（`zundo`，拖动合并为一步）、dagre 自动布局、框选、多选移动、删除（同时清理关联边）、缩放、运行输入选择与底部运行状态条。
+- **校验定位**：`pipeline.validate` 的 `step_id` / `port` / `cycle` 映射到节点徽标与错误边；右侧面板展示节点问题与配方整体问题。
+- **测试**：前端引入 Vitest + Testing Library，39 个用例覆盖配方互转、连接校验、布局、问题定位、Zustand 撤销/重做与 SchemaForm；引擎新增编辑器配方保存/校验/真实 MKV 端到端测试，引擎测试增至 **166 个**，全部通过。`tsc && vite build` 通过，并用 CDP + 假 Tauri invoke 在真实 WebView 浏览器内核中验证画布、校验高亮、另存为与运行流程。
+
+### M3 项目与配方
+
+#### 新增
+- **项目工作区与状态机**：`core/projects.py` 提供 `ProjectManager`，按 `<data_dir>/projects/<prj_id>/` 创建 `source / extracted / clean / translated / output / artifacts / reviews / logs`；项目元数据（媒体引用、fingerprint、语言对、run 历史、导出产物、状态）持久化到 SQLite `projects` 表。运行结束自动归档 `output/` 产物，`video_to_clean_srt` 成功后置为 `waiting_translation`，`translated_to_bilingual` 成功后置为 `done`，失败为 `failed`。
+- **配方库**：`core/recipe_library.py` + 4 个内置只读配方（`video_to_clean_srt`、`translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`）；用户配方存 `<data_dir>/recipes/<id>.json`，内置配方禁止覆盖/删除。M7 步骤（`sub.match_project` / `sub.merge_bilingual` / `sub.fps_convert`）与 `translate.linguagacha` 先提供端口/Schema 占位，执行时返回带 `milestone` 的明确错误。
+- **`pipeline.validate`**：`core/validation.py` 校验步骤 id 唯一、依赖存在、无环、未知实现、Options Schema、端口类型兼容、必填输入、when 表达式、导出目录不得越出工作区、导出文件名/路径冲突、配方输出端口与输入名重复；`pipeline.run` 启动前复用同一套规则，失败返回 `1001` + 完整报告。
+- **RPC 扩展**：`recipes.list/get/save/delete`、`pipeline.validate`、`project.create/list/get/delete`、`artifact.reveal`；`pipeline.run` 支持 `recipe_id`、按项目工作区运行并接受 `project` 上下文；新增 `project.updated` 事件。
+- **流程 1 前端**：拖入视频 → 创建项目 → 校验并运行 `video_to_clean_srt`；新增「最近项目」列表（重启后从 SQLite 恢复）与交接卡片（最新产物、打开所在文件夹、复制路径、提示拖回译文）。`runStore` 按 `run_id` 过滤迟到事件。
+- **测试**：新增项目 CRUD/状态机/删除清理、配方库只读与校验、`pipeline.validate` 规则、真实 MKV 的流程 1 端到端与引擎重启持久化测试。引擎测试增至 **164 个**，全部通过；前端 `tsc && vite build` 通过。
+
+### M2 领域步骤
+
+#### 新增
+- **领域层（纯函数）**：`domain/clean.py` 移植 `tools/srt_process.py` + `tools/chs_srt_format.py` 的清理、短句/相同行合并与中文标点规范化；`domain/srt.py` 提供宽容解析与 LF 序列化；`domain/media.py` 移植 ffprobe 解析、MKV 补充、默认轨道选择与输出命名；`domain/paths.py` 移植 Windows 长路径/8.3 短路径处理；`domain/validate.py` 新增时间轴倒挂/重叠、空文本、时长、CPS、行宽校验并输出结构化报告。
+- **媒体步骤**：`media.probe`（ffprobe，MKV 编码未知时 mkvmerge -J 补充）与 `media.extract_subtitles`（ffmpeg / mkvextract 双路径，保留 VTT→SRT 转换与进度解析）。
+- **字幕步骤**：`sub.normalize`（括号/标签/人名提示/大写行/合并开关 + 可选中文标点）、`sub.validate`（warnings 报告，可配置 `fail_on_error`）、`sub.export`（UTF-8 + LF、覆盖前 `.bak`、输出目录可配）。
+- **外部依赖错误**：ffmpeg / ffprobe / mkvmerge / mkvextract 缺失统一映射为 `1006`，`data.tool` 与安装提示可直接展示。
+- **多产物端口**：Runner / 缓存支持 `multiple: true` 端口返回 Artifact 列表；缓存键纳入列表内所有产物哈希，避免多轨道提取后下游误命中旧缓存。
+- **运行输入**：`pipeline.run.inputs` / CLI `--input` 注入步骤上下文，`media.probe` 可直接读取首个输入文件（也可用 `options.source` 覆盖）。
+
+#### 工程改进
+- **测试**：新增领域 Golden Test（直接导入旧 `tools/` 函数逐字节对比）、媒体解析/轨道选择/校验单测、真实 ffmpeg 生成的 MKV + MP4 双 fixture 端到端测试（探测→提取→规范→校验→导出，并与旧 `SubtitleExtractor` 输出对比）、mkvextract 分支与 `1006` 错误映射。引擎测试增至 **136 个**，全部通过；`steps.list` 自动暴露 M2 步骤 Schema。
+- 旧 `app_ui.py` / `ui/` / `tools/` 保持不变，继续作为迁移对比基准。
+
+### M1 引擎核心
+
+#### 新增
+- **持久化与产物存储**：`core/store.py` 提供 SQLite（`PRAGMA user_version` 顺序迁移，v1 建 projects/runs/artifacts/reviews/settings/step_cache 六张表，WAL + 外键）、内容寻址产物（`artifacts/<sha256>/`，临时文件 + `os.replace` 原子写入，同哈希复用）、Run 持久化与 settings/cache KV。
+- **步骤缓存**：`core/cache.py` 按 TASKBOOK §10.2 计算缓存键（step_id + 引擎版本 + canonical JSON options + 排序后的输入产物哈希），命中前校验产物存在且哈希一致；负载损坏或产物被手改会自动失效并清理。
+- **Runner 完整化**：`graphlib.TopologicalSorter` 拓扑排序与环检测、依赖端口按 kind 注入、`when: ${options.x}` 条件跳过（不支持的表达式显式报错）、可重试错误重试（默认 1 次，仅超时/连接/临时占用类）、`continue_on_error` 只跳过下游、同项目互斥（`1004`）、全局并行上限（默认 2，超出的 run 排队）。
+- **子进程管理**：`core/processes.py` 统一登记步骤启动的子进程，取消/失败/退出时用 `taskkill /T /F` 清理整棵进程树。
+- **CLI**：`python -m subtitle_engine run recipes/demo.yaml [--input ...] [--data-dir ...] [--json] [--no-cache] [--continue-on-error]`，事件摘要写 stderr、结果写 stdout；新增 `core/recipes.py`（YAML/JSON 配方加载）与 `recipes/demo.yaml` 三步示例。
+- **演示步骤**：`demo.generate` / `demo.transform` / `demo.consume`，均为确定性文本步骤，用于验证依赖、产物与跨进程缓存。
+
+#### 工程改进
+- **Server**：`pipeline.run` 支持 `options` / `max_retries` / `continue_on_error` / `no_cache`；`job.status` 增加 `cached` / `attempts`；`RpcServer` 可注入数据目录，退出时关闭 SQLite。
+- **测试**：引擎测试增至 **97 个**，覆盖 Store/Cache/Recipe 加载、拓扑与环、when、重试、继续执行、并发排队与项目锁、取消清理子进程、CLI 跨进程缓存；`pipeline.py` 覆盖率 **86%**（要求 >80%）。
+
+### M0 骨架
+
+#### 新增
+- **全新架构骨架（`feat/pipeline-v2`）**：在保留旧 CustomTkinter 实现作为参考基准的前提下，新增 Tauri v2 + React 桌面壳与 Python headless 引擎。
+    * `engine/`：独立 uv 项目（Python 3.15），提供 JSON-RPC 2.0 over stdio（JSONL）服务，严格保证 `stdout` 只输出协议消息、日志全部走 `stderr`。
+    * `apps/desktop/`：Tauri v2 壳 + React 19/TypeScript/Vite/Tailwind，首页支持原生拖拽 / 文件选择，实时展示运行进度与事件日志。
+- **引擎 RPC（M0）**：`engine.hello`、`engine.shutdown`、`steps.list`（含 Pydantic 自动生成的 Options JSON Schema）、`pipeline.run`（最小顺序执行器）、`job.status`、`job.cancel`；事件包含 `run.started` / `step.started` / `step.progress` / `step.log` / `step.failed` / `run.finished`，`seq` 单调递增。
+- **Rust Supervisor**：spawn sidecar、10s 握手、请求/响应 id 匹配、stdout 事件转发、stderr 日志转发、60s 内最多 3 次崩溃重启、退出时 `engine.shutdown` → 2s 宽限 → `taskkill /T /F` 杀进程树；Windows 下使用 `CREATE_NO_WINDOW`。
+- **协议文档**：新增 `docs/pipeline-v2/PROTOCOL.md`（分帧、方法表、错误码、事件、HITL、版本兼容）。
+
+#### 工程改进
+- **任务书 v1.1**：按用户决策将引擎 Python 目标由 3.12/3.13 调整为 **3.15**，与根项目统一。
+- **测试**：引擎 31 个 pytest（分帧、非法 JSON、未知方法、握手、进度、取消、失败停止下游、子进程 stdout 纯净性），Rust 7 个协议解析单测；`npm run build` 通过。
+- **开发环境**：Rust 1.100.0（MSVC）通过 `scoop install rustup-msvc` 安装。
+
+## 0.9.8-beta
+
+### 功能改进
+- **双语合并**：
+    * **重复片段字体对齐**：当译文与原文存在连续重复的片段（忽略大小写、空白与标点，数字不计入阈值，但会保留在片段内）且非数字字符超过 4 个时，译文中的该片段自动改用原文样式的字体名（`\fn`）渲染，字号、描边、颜色等仍沿用译文样式。
+
 ## 0.9.7
 
 ### 工程改进

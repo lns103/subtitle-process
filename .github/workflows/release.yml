@@ -98,7 +98,7 @@ jobs:
         run: |
           $version = (Get-Content -LiteralPath "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
           if ($version -match '(?i)(alpha|beta|rc)') {
-            Write-Host "Pre-release $version: building NSIS only (WiX/MSI requires numeric prerelease)."
+            Write-Host "Pre-release ${version}: building NSIS only (WiX/MSI requires numeric prerelease)."
             npm run tauri build -- --bundles nsis
           }
           else {

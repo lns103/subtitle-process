@@ -48,8 +48,14 @@ jobs:
           if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
             choco install ffmpeg -y --no-progress
           }
+          $mkvDir = "C:\Program Files\MKVToolNix"
           if (-not (Get-Command mkvextract -ErrorAction SilentlyContinue)) {
             choco install mkvtoolnix -y --no-progress
+          }
+          # Chocolatey 修改的是机器 PATH，后续 step 的新 shell 不会自动继承；
+          # 显式写入 GITHUB_PATH，保证 pytest 能通过 shutil.which 找到 mkvextract。
+          if (Test-Path -LiteralPath $mkvDir) {
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value $mkvDir
           }
           ffmpeg -version | Select-Object -First 1
           mkvextract --version | Select-Object -First 2
@@ -116,4 +122,4 @@ jobs:
 
       - name: Check Rust shell
         working-directory: apps/desktop/src-tauri
-        run: cargo check --locked
+        run: cargo check

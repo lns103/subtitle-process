@@ -138,9 +138,9 @@ artifacts/<sha256>/      # 内容寻址产物
 | Workflow | 触发 | 内容 |
 |---|---|---|
 | `.github/workflows/ci.yml` | push / PR 到 `master`、`main` | 引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` |
-| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri MSI / NSIS 安装包 → 附加到 GitHub Release |
+| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri 安装包 → 附加到 GitHub Release |
 
-发布前把 Tauri updater 私钥放到仓库 Secrets：`TAURI_SIGNING_PRIVATE_KEY`、
+预发布版本（`-alpha` / `-beta` / `-rc`）只生成 NSIS 安装包，因为 WiX/MSI 要求 prerelease 为纯数字；稳定版会同时生成 MSI 与 NSIS。发布前把 Tauri updater 私钥放到仓库 Secrets：`TAURI_SIGNING_PRIVATE_KEY`、
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。未配置时 CI 会自动关闭 updater 签名产物并给出警告，
 普通安装包仍会照常构建。配置步骤见 `apps/desktop/src-tauri/UPDATER.md`。
 

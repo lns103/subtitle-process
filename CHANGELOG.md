@@ -14,7 +14,7 @@
 #### 变更
 - **移除旧工具箱**：从主线删除 `app_ui.py`、`ui/`、`tools/`、根 `version.py`、根 `pyproject.toml` 与 `uv.lock`；旧版完整实现保存在 `archive/legacy-toolbox` 分支（原 `dev`）。
 - **冻结 golden 基准**：将 golden 测试依赖的 7 个旧领域模块移入 `engine/tests/legacy_reference/`，测试改为包内导入并新增说明 README；生产代码不得引用该目录。
-- **GitHub Workflows**：用 `ci.yml` 替换旧的 PyInstaller 单文件构建，新增引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` 三条检查；`release.yml` 改为先构建 Python sidecar，再打包 Tauri MSI/NSIS，并在缺少 updater 私钥时自动关闭签名产物、正常产出普通安装包。
+- **GitHub Workflows**：用 `ci.yml` 替换旧的 PyInstaller 单文件构建，新增引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` 三条检查；`release.yml` 改为先构建 Python sidecar，再打包 Tauri 安装包，并在缺少 updater 私钥时自动关闭签名产物、正常产出普通安装包。预发布版本（`-alpha` / `-beta` / `-rc`）自动只构建 NSIS，因为 WiX/MSI 不接受非数字 prerelease。
 - **文档**：`README.md` 与 `AGENTS.md` 更新为 pipeline-v2 架构，补充 CI/发布流程与存档分支说明。
 
 ## M7 合并与发布

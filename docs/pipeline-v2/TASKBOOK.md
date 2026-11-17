@@ -1,5 +1,9 @@
 # 任务书：字幕流水线 v2（Tauri v2 + React + Python Sidecar）
 
+> **状态：历史任务书（M0–M7 已完成）。** 文中“保留旧 `app_ui.py` / `ui/` / `tools/`”
+> 等迁移期约定已结束：旧工具箱删除并存档在 `archive/legacy-toolbox` 分支，
+> golden 基准冻结在 `engine/tests/legacy_reference/`。当前开发规范以 `AGENTS.md` 为准。
+
 > 版本：1.2
 > 日期：2026-11-17
 > 变更：v1.2 完成 M7（合并、流程 2、打包与发布），M0–M7 全部验收；v1.1 将 D7 从 Python 3.12/3.13 改为 **Python 3.15**（与根项目统一）。

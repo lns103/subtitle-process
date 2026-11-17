@@ -2,8 +2,9 @@
 
 字幕流水线 v2：一个以 **Tauri v2 + React + Python sidecar** 重写的本地字幕处理工作台。
 
-> 旧的 CustomTkinter 工具箱（`app_ui.py` / `ui/` / `tools/`）在迁移完成前仍保留，
-> 作为领域算法的参考实现与 golden test 基准。新功能全部位于 `engine/`、`apps/desktop/`。
+> 旧的 CustomTkinter 工具箱已从主线移除，完整实现存档在
+> `archive/legacy-toolbox` 分支；仅把 golden 对比所需的领域算法冻结在
+> `engine/tests/legacy_reference/`。
 
 ## 核心流程
 
@@ -40,7 +41,6 @@ Python 3.15 Engine（headless）
 ## 目录结构
 
 ```
-app_ui.py / ui/ / tools/        # 旧工具箱（迁移期保留）
 engine/                         # Python 引擎（独立 uv 项目）
   src/subtitle_engine/
     rpc/                        # JSON-RPC framing / server / errors
@@ -50,6 +50,7 @@ engine/                         # Python 引擎（独立 uv 项目）
     recipes/                    # 4 个内置配方
     agents/                     # OpenAI 兼容客户端与 SDH prompt
   tests/                        # pytest（协议、Runner、步骤、golden、E2E）
+    legacy_reference/           # 旧工具箱领域算法冻结副本（仅 golden 对比）
 apps/desktop/                   # Tauri + React 桌面端
   src/                          # 页面、React Flow 编辑器、审核、设置
   src-tauri/                    # Rust 壳与 sidecar supervisor
@@ -132,12 +133,16 @@ store.db                 # 项目、运行、产物、审核、设置（SQLite�
 artifacts/<sha256>/      # 内容寻址产物
 ```
 
-## 旧工具箱（迁移期）
+## 持续集成与发布
 
-```powershell
-uv sync
-uv run python app_ui.py
-```
+| Workflow | 触发 | 内容 |
+|---|---|---|
+| `.github/workflows/ci.yml` | push / PR 到 `master`、`main` | 引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` |
+| `.github/workflows/release.yml` | 推送 `v*` 标签 / 手动 | 构建 Python sidecar → Tauri MSI / NSIS 安装包 → 附加到 GitHub Release |
+
+发布前把 Tauri updater 私钥放到仓库 Secrets：`TAURI_SIGNING_PRIVATE_KEY`、
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。未配置时 CI 会自动关闭 updater 签名产物并给出警告，
+普通安装包仍会照常构建。配置步骤见 `apps/desktop/src-tauri/UPDATER.md`。
 
 ## 许可证
 

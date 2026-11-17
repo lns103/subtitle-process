@@ -1,14 +1,15 @@
 """M7 验收：``sub.match_project`` + ``sub.merge_bilingual`` 与流程 2 端到端。
 
-领域层算法与旧 ``tools/merge_srt.py`` 做逐字节 golden 对比；步骤层验证
+领域层算法与旧 ``legacy_reference/merge_srt.py`` 做逐字节 golden 对比；步骤层验证
 匹配、低置信度报错、双语 ASS 导出。
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
+
+import legacy_reference.merge_srt as old_merge  # noqa: E402
 
 from subtitle_engine import steps as _steps  # noqa: F401 - 触发步骤注册
 from subtitle_engine import version
@@ -19,12 +20,6 @@ from subtitle_engine.core.registry import step_specs
 from subtitle_engine.core.store import Store
 from subtitle_engine.domain import merge as domain_merge
 from subtitle_engine.steps import merge as merge_steps  # noqa: F401 - 注册 M7 步骤
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-import tools.merge_srt as old_merge  # noqa: E402
 
 ENG_SRT = """1
 00:00:01,000 --> 00:00:03,000

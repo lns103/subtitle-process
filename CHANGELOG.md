@@ -4,7 +4,15 @@
 
 ## Unreleased — Pipeline v2
 
-### M7 合并与发布
+### 主线清理与持续集成
+
+#### 变更
+- **移除旧工具箱**：从主线删除 `app_ui.py`、`ui/`、`tools/`、根 `version.py`、根 `pyproject.toml` 与 `uv.lock`；旧版完整实现保存在 `archive/legacy-toolbox` 分支（原 `dev`）。
+- **冻结 golden 基准**：将 golden 测试依赖的 7 个旧领域模块移入 `engine/tests/legacy_reference/`，测试改为包内导入并新增说明 README；生产代码不得引用该目录。
+- **GitHub Workflows**：用 `ci.yml` 替换旧的 PyInstaller 单文件构建，新增引擎 `ruff` + `pytest`、前端 `vitest` + `tsc && vite build`、Rust `cargo check` 三条检查；`release.yml` 改为先构建 Python sidecar，再打包 Tauri MSI/NSIS，并在缺少 updater 私钥时自动关闭签名产物、正常产出普通安装包。
+- **文档**：`README.md` 与 `AGENTS.md` 更新为 pipeline-v2 架构，补充 CI/发布流程与存档分支说明。
+
+## M7 合并与发布
 
 #### 新增
 - **领域层移植**：`domain/merge.py` 忠实移植旧 `tools/merge_srt.py`（重复片段极大匹配 + 贪心选择、精确时间戳匹配、5 条模糊匹配规则、连通分量合并、`classify_and_match_files`、ASS 渲染），并提供 `parse_srt_entries` 保持毫秒截断与旧实现逐字节一致；新增 `domain/timing.py`（帧率/时间平移）、`domain/rename.py`（SxxExx 重命名计划，纯函数）、`domain/outline.py`（ASS 描边缩放）。

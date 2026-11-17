@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+from legacy_reference import fps_converter, time_shifter  # noqa: E402
 from pydantic import BaseModel, Field, ValidationError
 
 from subtitle_engine import steps as _steps  # noqa: F401 - 触发步骤注册
@@ -27,12 +27,6 @@ from subtitle_engine.domain.timing import (
     shift_text,
 )
 from subtitle_engine.steps import timing as _timing  # noqa: F401 - 注册 sub.* 步骤
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from tools import fps_converter, time_shifter  # noqa: E402
 
 SRT_SAMPLE = """1
 00:00:01,000 --> 00:00:03,000

@@ -5,7 +5,7 @@ import unicodedata
 from datetime import date
 
 try:
-    from tools.chs_srt_format import format_zh_text
+    from .chs_srt_format import format_zh_text
 except ImportError:
     from chs_srt_format import format_zh_text
 

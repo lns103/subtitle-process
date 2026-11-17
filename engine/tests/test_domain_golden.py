@@ -1,21 +1,16 @@
-"""M2 Golden Test：领域算法与旧 ``tools/`` 实现逐字节一致。
+"""M2 Golden Test：领域算法与旧实现逐字节一致。
 
-旧实现保留在仓库根目录，作为迁移期间的唯一对比基准。这里直接导入旧函数，
+旧实现冻结在 ``engine/tests/legacy_reference/``（v1 工具箱存档分支
+``archive/legacy-toolbox``），作为迁移期间唯一对比基准。这里直接导入旧函数，
 避免复制一份“预期输出”导致测试与实现一起漂移。
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from tools import chs_srt_format, srt_process  # noqa: E402
+from legacy_reference import chs_srt_format, srt_process
 
 from subtitle_engine.domain.clean import clean_srt_text, format_zh_srt_text  # noqa: E402
 

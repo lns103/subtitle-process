@@ -33,6 +33,8 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100
+# 旧工具箱冻结副本仅用于 golden 对比，保持原样，不参与格式/规则检查。
+extend-exclude = ["tests/legacy_reference"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

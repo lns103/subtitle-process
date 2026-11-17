@@ -1,7 +1,7 @@
 """M2 媒体/字幕步骤集成测试。
 
 真实调用 ffmpeg/ffprobe 生成并提取 2 个 fixture 视频，同时用旧
-``tools/subtitle_extractor.py`` 的产物做 golden 对比。缺少 ffmpeg 的环境
+``legacy_reference/subtitle_extractor.py`` 的产物做 golden 对比。缺少 ffmpeg 的环境
 自动跳过真实媒体用例，纯算法部分仍由 ``test_domain_golden.py`` 覆盖。
 """
 
@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+from legacy_reference import srt_process  # noqa: E402
+from legacy_reference.subtitle_extractor import SubtitleExtractor  # noqa: E402
 from pydantic import BaseModel, Field
 
 from subtitle_engine import steps as _steps  # noqa: F401 - 触发步骤注册
@@ -26,13 +27,6 @@ from subtitle_engine.core.registry import register_step
 from subtitle_engine.core.step import Step, StepContext
 from subtitle_engine.core.store import Store
 from subtitle_engine.rpc.errors import DEPENDENCY_MISSING
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from tools import srt_process  # noqa: E402
-from tools.subtitle_extractor import SubtitleExtractor  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,

@@ -1,23 +1,17 @@
 """M7 步骤测试：``sub.outline_scale`` 与 ``sub.rename``。
 
-描边缩放与旧 ``tools/ass_outlinescale.py`` 做逐字节 golden 对比；重命名只测
+描边缩放与旧 ``legacy_reference/ass_outlinescale.py`` 做逐字节 golden 对比；重命名只测
 纯函数规划与真实临时文件上的步骤副作用。
 """
 
 from __future__ import annotations
 
 import hashlib
-import sys
 from pathlib import Path
 from typing import Any
 
+from legacy_reference import ass_outlinescale as legacy_outline  # noqa: E402
 from pydantic import BaseModel, Field
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from tools import ass_outlinescale as legacy_outline  # noqa: E402
 
 from subtitle_engine import steps as _steps  # noqa: E402,F401 - 触发基础步骤注册
 from subtitle_engine import version  # noqa: E402

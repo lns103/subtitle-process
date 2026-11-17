@@ -1,12 +1,151 @@
 import os
 import re
 import sys
+import unicodedata
 from datetime import date
 
 try:
     from tools.chs_srt_format import format_zh_text
 except ImportError:
     from chs_srt_format import format_zh_text
+
+_ITALIC_TAG_RE = re.compile(r"</?i>", re.IGNORECASE)
+
+# 译文与原文连续重复片段的匹配阈值：非数字字符数需超过该值
+DUPLICATE_MIN_NON_DIGIT = 5
+
+DEFAULT_L1_STYLE_DEF = "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1"
+DEFAULT_L2_STYLE_DEF = "Arial, 40, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1"
+
+
+def _strip_ass_markup(text):
+    """去掉 ASS 覆写标签与 <i> 标记，返回 (清理后文本, 清理后下标 -> 原始下标映射)。"""
+    cleaned = []
+    index_map = []
+    i = 0
+    length = len(text)
+    while i < length:
+        if text[i] == "{":
+            close = text.find("}", i)
+            if close != -1:
+                i = close + 1
+                continue
+        m = _ITALIC_TAG_RE.match(text, i)
+        if m:
+            i = m.end()
+            continue
+        cleaned.append(text[i])
+        index_map.append(i)
+        i += 1
+    return "".join(cleaned), index_map
+
+
+def _normalize_for_match(text):
+    """
+    归一化字幕文本用于重复片段检测，返回 (归一化串, 归一化下标 -> 原始下标映射)。
+
+    忽略 ASS 标签、<i> 标记、空白与标点，统一大小写（casefold）并做 NFKC 规范化，
+    因此对英语之外的泛欧语言（德语 ß、希腊语、西里尔字母等）同样适用。
+    """
+    cleaned, raw_map = _strip_ass_markup(text)
+    chars = []
+    index_map = []
+    for cleaned_idx, ch in enumerate(cleaned):
+        for normalized in unicodedata.normalize("NFKC", ch):
+            for folded in normalized.casefold():
+                if not folded.isalnum():
+                    continue
+                chars.append(folded)
+                index_map.append(raw_map[cleaned_idx])
+    return "".join(chars), index_map
+
+
+def _count_non_digit(text):
+    return sum(1 for ch in text if not ch.isdigit())
+
+
+def find_duplicate_runs(zh_text, eng_text, min_non_digit=DUPLICATE_MIN_NON_DIGIT):
+    """
+    查找译文与原文之间连续重复的片段。
+
+    数字不计入阈值计算，但不会打断片段的连续性。
+    返回按译文下标升序排列的 (start, end) 列表（end 不含）。
+    """
+    zh_norm, zh_map = _normalize_for_match(zh_text)
+    eng_norm, _ = _normalize_for_match(eng_text)
+    n, m = len(zh_norm), len(eng_norm)
+    if n < min_non_digit or m < min_non_digit:
+        return []
+
+    # dp[i][j] = 以 zh_norm[i-1] 与 eng_norm[j-1] 结尾的连续匹配长度
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    candidates = []
+    for i in range(1, n + 1):
+        zh_char = zh_norm[i - 1]
+        row = dp[i]
+        prev_row = dp[i - 1]
+        for j in range(1, m + 1):
+            if zh_char != eng_norm[j - 1]:
+                continue
+            run_len = prev_row[j - 1] + 1
+            row[j] = run_len
+            # 只收集右侧已无法继续延长的极大匹配片段
+            if i < n and j < m and zh_norm[i] == eng_norm[j]:
+                continue
+            if _count_non_digit(zh_norm[i - run_len:i]) >= min_non_digit:
+                candidates.append((i - run_len, i, run_len))
+
+    if not candidates:
+        return []
+
+    # 优先保留更长的片段，再按位置排序，最终得到互不重叠的匹配区间
+    candidates.sort(key=lambda item: (-item[2], item[0]))
+    selected = []
+    for start, end, _ in candidates:
+        if any(start < sel_end and sel_start < end for sel_start, sel_end, _ in selected):
+            continue
+        selected.append((start, end, end - start))
+    selected.sort()
+
+    runs = []
+    for start, end, _ in selected:
+        zh_start = zh_map[start]
+        zh_end = zh_map[end - 1] + 1
+        runs.append((zh_start, zh_end))
+    return runs
+
+
+def apply_original_font_to_duplicates(zh_text, eng_text, base_font, duplicate_font,
+                                      min_non_digit=DUPLICATE_MIN_NON_DIGIT):
+    """
+    将译文中与原文连续重复（非数字字符超过 min_non_digit 个）的片段改用原文字体名渲染。
+
+    只切换 \fn 字体名，保留译文样式本身的字号、描边、颜色等属性。
+    """
+    if not duplicate_font or duplicate_font == base_font:
+        return zh_text
+
+    runs = find_duplicate_runs(zh_text, eng_text, min_non_digit=min_non_digit)
+    if not runs:
+        return zh_text
+
+    for start, end in reversed(runs):
+        run_text = zh_text[start:end]
+        # 含 ASS 特殊字符的片段不做包装，避免破坏标签语法
+        if any(ch in run_text for ch in "\\{}"):
+            continue
+        replacement = f"{{\\fn{duplicate_font}}}{run_text}"
+        if end < len(zh_text):
+            replacement += f"{{\\fn{base_font}}}"
+        zh_text = zh_text[:start] + replacement + zh_text[end:]
+    return zh_text
+
+
+def _style_font_name(style_def):
+    """从 ASS 样式定义中取字体名（第一项）。"""
+    if not style_def:
+        return ""
+    return style_def.split(",", 1)[0].strip()
 
 def convert_time(srt_timestamp):
     """
@@ -57,6 +196,8 @@ def merge_srt(eng_entries, zh_entries, **kwargs):
     首先尝试精确匹配，如果中文中缺失了任何一个英文的时间戳，则降级使用模糊匹配规则。
     """
     l2_style_name = kwargs.get("lang2_style_name", "Original")
+    l1_font = _style_font_name(kwargs.get("lang1_style_def", DEFAULT_L1_STYLE_DEF))
+    l2_font = _style_font_name(kwargs.get("lang2_style_def", DEFAULT_L2_STYLE_DEF))
 
     def get_ms(t_str):
         h, m, s_ms = t_str.split(':')
@@ -82,8 +223,10 @@ def merge_srt(eng_entries, zh_entries, **kwargs):
             zh_text = format_zh_text(zh_text)
             if (zh_start, zh_end) in eng_map:
                 eng_text = eng_map[(zh_start, zh_end)]
+                eng_text = eng_text.replace("<i>", "").replace("</i>", "")
+                zh_text = apply_original_font_to_duplicates(
+                    zh_text, eng_text, l1_font, l2_font)
                 merged_text = f"{zh_text}\\N{{\\r{l2_style_name}}}{eng_text}"
-                merged_text = merged_text.replace("<i>", "").replace("</i>", "")
                 merged_entries.append((zh_start, zh_end, merged_text))
             else:
                 # 中文多出的字幕
@@ -247,7 +390,10 @@ def merge_srt(eng_entries, zh_entries, **kwargs):
             
             eng_texts = [eng_nodes[e_idx]['text'].replace("<i>", "").replace("</i>", "") for e_idx in e_list]
             eng_merged = " ".join(eng_texts)
-            
+
+            zh_merged = apply_original_font_to_duplicates(
+                zh_merged, eng_merged, l1_font, l2_font)
+
             merged_text = f"{zh_merged}\\N{{\\r{l2_style_name}}}{eng_merged}"
             merged_entries.append((start_str, end_str, merged_text))
 
@@ -268,10 +414,10 @@ def write_ass(merged_entries, output_path, filename, **kwargs):
     playresy = kwargs.get("playresy", 1080)
     
     l1_style_name = kwargs.get("lang1_style_name", "Chinese")
-    l1_style_def = kwargs.get("lang1_style_def", "黑体, 60, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1")
+    l1_style_def = kwargs.get("lang1_style_def", DEFAULT_L1_STYLE_DEF)
     
     l2_style_name = kwargs.get("lang2_style_name", "Original")
-    l2_style_def = kwargs.get("lang2_style_def", "Arial, 40, &H00EEEEEE, &HF0000000, &H00000000, &H32000000, 0, 0, 0, 0, 100, 100, 0, 0, 1, 1.5, 0, 2, 18, 18, 18, 1")
+    l2_style_def = kwargs.get("lang2_style_def", DEFAULT_L2_STYLE_DEF)
 
     header = (
         "[Script Info]\n"

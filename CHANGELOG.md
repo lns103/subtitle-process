@@ -6,7 +6,8 @@
 
 ### 版本
 
-- 版本号提升至 **`1.0.0-alpha1`**：引擎、桌面端、Tauri 配置及 `uv.lock` / `Cargo.lock` / `package-lock.json` 保持同步。
+- 桌面应用版本号提升至 **`1.0.0-alpha1`**：Tauri、前端与 Rust 配置保持同步；Python 引擎版本仍为 `0.1.0`。
+- 同步 `package-lock.json`，补齐缺失的 Tauri 插件条目，恢复 `npm ci` 可复现安装。
 
 ### 主线清理与持续集成
 

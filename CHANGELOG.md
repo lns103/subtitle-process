@@ -2,9 +2,25 @@
 
 所有针对当前软件功能和 UI 界面的重要更改都会记录在此文件中。
 
-## Unreleased — Pipeline v2 (M0)
+## Unreleased — Pipeline v2
 
-### 新增
+### M1 引擎核心
+
+#### 新增
+- **持久化与产物存储**：`core/store.py` 提供 SQLite（`PRAGMA user_version` 顺序迁移，v1 建 projects/runs/artifacts/reviews/settings/step_cache 六张表，WAL + 外键）、内容寻址产物（`artifacts/<sha256>/`，临时文件 + `os.replace` 原子写入，同哈希复用）、Run 持久化与 settings/cache KV。
+- **步骤缓存**：`core/cache.py` 按 TASKBOOK §10.2 计算缓存键（step_id + 引擎版本 + canonical JSON options + 排序后的输入产物哈希），命中前校验产物存在且哈希一致；负载损坏或产物被手改会自动失效并清理。
+- **Runner 完整化**：`graphlib.TopologicalSorter` 拓扑排序与环检测、依赖端口按 kind 注入、`when: ${options.x}` 条件跳过（不支持的表达式显式报错）、可重试错误重试（默认 1 次，仅超时/连接/临时占用类）、`continue_on_error` 只跳过下游、同项目互斥（`1004`）、全局并行上限（默认 2，超出的 run 排队）。
+- **子进程管理**：`core/processes.py` 统一登记步骤启动的子进程，取消/失败/退出时用 `taskkill /T /F` 清理整棵进程树。
+- **CLI**：`python -m subtitle_engine run recipes/demo.yaml [--input ...] [--data-dir ...] [--json] [--no-cache] [--continue-on-error]`，事件摘要写 stderr、结果写 stdout；新增 `core/recipes.py`（YAML/JSON 配方加载）与 `recipes/demo.yaml` 三步示例。
+- **演示步骤**：`demo.generate` / `demo.transform` / `demo.consume`，均为确定性文本步骤，用于验证依赖、产物与跨进程缓存。
+
+#### 工程改进
+- **Server**：`pipeline.run` 支持 `options` / `max_retries` / `continue_on_error` / `no_cache`；`job.status` 增加 `cached` / `attempts`；`RpcServer` 可注入数据目录，退出时关闭 SQLite。
+- **测试**：引擎测试增至 **97 个**，覆盖 Store/Cache/Recipe 加载、拓扑与环、when、重试、继续执行、并发排队与项目锁、取消清理子进程、CLI 跨进程缓存；`pipeline.py` 覆盖率 **86%**（要求 >80%）。
+
+### M0 骨架
+
+#### 新增
 - **全新架构骨架（`feat/pipeline-v2`）**：在保留旧 CustomTkinter 实现作为参考基准的前提下，新增 Tauri v2 + React 桌面壳与 Python headless 引擎。
     * `engine/`：独立 uv 项目（Python 3.15），提供 JSON-RPC 2.0 over stdio（JSONL）服务，严格保证 `stdout` 只输出协议消息、日志全部走 `stderr`。
     * `apps/desktop/`：Tauri v2 壳 + React 19/TypeScript/Vite/Tailwind，首页支持原生拖拽 / 文件选择，实时展示运行进度与事件日志。
@@ -12,7 +28,7 @@
 - **Rust Supervisor**：spawn sidecar、10s 握手、请求/响应 id 匹配、stdout 事件转发、stderr 日志转发、60s 内最多 3 次崩溃重启、退出时 `engine.shutdown` → 2s 宽限 → `taskkill /T /F` 杀进程树；Windows 下使用 `CREATE_NO_WINDOW`。
 - **协议文档**：新增 `docs/pipeline-v2/PROTOCOL.md`（分帧、方法表、错误码、事件、HITL、版本兼容）。
 
-### 工程改进
+#### 工程改进
 - **任务书 v1.1**：按用户决策将引擎 Python 目标由 3.12/3.13 调整为 **3.15**，与根项目统一。
 - **测试**：引擎 31 个 pytest（分帧、非法 JSON、未知方法、握手、进度、取消、失败停止下游、子进程 stdout 纯净性），Rust 7 个协议解析单测；`npm run build` 通过。
 - **开发环境**：Rust 1.100.0（MSVC）通过 `scoop install rustup-msvc` 安装。

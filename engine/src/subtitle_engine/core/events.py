@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .models import Event, utc_now
+
+logger = logging.getLogger(__name__)
 
 
 class EventEmitter:
@@ -38,5 +41,8 @@ class EventEmitter:
             ts=utc_now(),
             **fields,
         )
-        self._send(event)
+        try:
+            self._send(event)
+        except Exception:  # noqa: BLE001 - 事件接收方故障不能中断流水线
+            logger.exception("事件发送失败: %s", event_type)
         return event

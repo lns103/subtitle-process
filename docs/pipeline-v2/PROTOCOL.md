@@ -101,7 +101,7 @@ subtitle-engine.exe --rpc stdio
 | `engine.hello` | `client?, protocol?` | `EngineInfo` | M0 | 握手 |
 | `engine.shutdown` | `{}` | `"ok"` | M0 | 优雅退出；响应发出后进程退出 |
 | `steps.list` | `{}` | `StepSpec[]` | M0 | 步骤目录 + Options JSON Schema |
-| `pipeline.run` | `recipe?, inputs?, project_id?` | `{job_id, run_id}` | M0（最小） | 启动；省略 `recipe` 时运行内置示例 |
+| `pipeline.run` | `recipe?, inputs?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1 | 启动；省略 `recipe` 时运行内置示例 |
 | `job.status` | `job_id` | `Run` | M0 | 查询运行状态 |
 | `job.cancel` | `job_id` | `"ok"` | M0 | 取消并杀子进程树 |
 | `recipes.list` | `{}` | `RecipeSummary[]` | M3 | 预设 + 用户配方 |
@@ -120,13 +120,17 @@ subtitle-engine.exe --rpc stdio
 | `secrets.set` | `name, value` | `"ok"` | M6 | 写入系统钥匙串 |
 | `agent.test` | `{}` | `{ok, latency_ms}` | M6 | 测试 API 连通性 |
 
-### 4.1 `pipeline.run`（M0 行为）
+### 4.1 `pipeline.run`（M1 行为）
 
 - `recipe`：完整配方对象，见第 6 节；省略时运行内置 `demo` 配方（单步 `demo.tick`）。
-- `inputs`：字符串路径数组，原样传给步骤上下文，M0 不复制文件。
-- 立即返回 `{job_id, run_id}`；M0 二者相同，后续可能拆分。
-- 同一项目并发限制、全局并发限制在 M1 实现，超出返回 `1004`。
-- 配方校验失败返回 `1001`，不会创建 run。
+- `inputs`：字符串路径数组，原样传给步骤上下文，M1 不复制文件。
+- `options`：运行级选项对象，供 `when: "${options.x}"` 与后续步骤读取。
+- `max_retries`：可重试错误的最大重试次数（默认 1，0 表示不重试）。
+- `continue_on_error`：为 true 时某步失败只跳过其下游，其它分支继续（默认 false）。
+- `no_cache`：为 true 时禁用步骤缓存。
+- 立即返回 `{job_id, run_id}`；M1 二者相同。
+- 同一项目已有运行中的 run 时返回 `1004`；全局并行超限时新 run 进入 `queued`。
+- 配方校验（id 重复、依赖缺失、环）失败返回 `1001`，不会创建 run。
 
 ### 4.2 `job.status` 返回
 
@@ -137,7 +141,14 @@ subtitle-engine.exe --rpc stdio
   "recipe_id":"demo",
   "status":"running",
   "steps":[
-    {"id":"demo","uses":"demo.tick","status":"running","progress":0.4}
+    {
+      "id":"demo",
+      "uses":"demo.tick",
+      "status":"running",
+      "progress":0.4,
+      "cached":false,
+      "attempts":1
+    }
   ],
   "started_at":"2026-11-17T12:00:00.123456Z"
 }
@@ -145,6 +156,7 @@ subtitle-engine.exe --rpc stdio
 
 - `status`：`queued | running | waiting_review | done | failed | cancelled`
 - 步骤 `status`：`idle | queued | running | done | failed | skipped | waiting_review | cancelled`
+- `cached=true` 表示该步命中缓存（未执行、`attempts=0`）。
 - 时间字段为 ISO 8601 UTC；未发生的字段省略（`exclude_none`）。
 
 ## 5. 错误码
@@ -209,11 +221,13 @@ subtitle-engine.exe --rpc stdio
 }
 ```
 
-M0 执行约定：
+M1 执行约定：
 
-- 步骤按数组顺序执行；`needs` 在 M1 参与拓扑排序。
-- `when` 条件表达式在 M0 遇到即报 `-32602`（明确失败，不静默跳过）。
+- 步骤按 `needs` 进行拓扑排序执行（与数组顺序无关）；环、依赖缺失、id 重复在启动前返回 `1001`。
+- `when` 仅支持 `${options.<key>}`（可嵌套，如 `${options.a.b}`）；不支持的表达式显式报 `-32602`，不会静默跳过。
 - `with` 即 `options`；`ui` 仅前端使用，执行前可剥离。
+- 输入端口按 `kind` 从上游输出自动注入；必填端口没有匹配产物时该步失败。
+- 确定性步骤默认启用缓存；命中时该步 `cached=true`，并照常发出 `step.artifact`。
 
 ## 7. 事件
 

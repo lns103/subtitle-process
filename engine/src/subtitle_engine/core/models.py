@@ -81,12 +81,25 @@ RunStatus = Literal[
 ]
 
 
+class Artifact(BaseModel):
+    """步骤产物；``hash`` 为内容 sha256，同哈希复用不重复写盘。"""
+
+    key: str
+    kind: str
+    hash: str
+    path: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class StepState(BaseModel):
     id: str
     uses: str
     status: StepStatus = "idle"
     progress: float = 0.0
     error: str | None = None
+    cached: bool = False
+    attempts: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
 

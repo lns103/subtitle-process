@@ -10,12 +10,16 @@ import logging
 import platform
 import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, BinaryIO
 
 from .. import version as engine_version
+from ..core.cache import StepCache
 from ..core.models import Event, Recipe, Run, StepNode
+from ..core.paths import resolve_data_dir
 from ..core.pipeline import JobManager
 from ..core.registry import step_specs
+from ..core.store import Store
 from ..steps import demo as _demo_steps  # noqa: F401 - 导入以完成步骤注册
 from . import framing
 from .errors import (
@@ -52,6 +56,7 @@ class RpcServer:
         self,
         *,
         sink: MessageSink | None = None,
+        data_dir: str | Path | None = None,
         capabilities: tuple[str, ...] = ("pipeline",),
     ) -> None:
         self._sink = sink
@@ -59,7 +64,19 @@ class RpcServer:
         self._capabilities = list(capabilities)
         self._stop = asyncio.Event()
         self._pending: set[asyncio.Task[None]] = set()
-        self._jobs = JobManager(self._emit_event)
+        self._data_dir = resolve_data_dir(data_dir)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        workspace = self._data_dir / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        self._store = Store(self._data_dir)
+        self._cache = StepCache(self._store, engine_version=engine_version.__version__)
+        self._closed = False
+        self._jobs = JobManager(
+            self._emit_event,
+            store=self._store,
+            cache=self._cache,
+            workspace=workspace,
+        )
         self._handlers: dict[str, Handler] = {
             "engine.hello": self._handle_hello,
             "engine.shutdown": self._handle_shutdown,
@@ -72,6 +89,13 @@ class RpcServer:
     @property
     def jobs(self) -> JobManager:
         return self._jobs
+
+    def close(self) -> None:
+        """释放 SQLite 连接（测试与退出路径显式调用）。"""
+        if self._closed:
+            return
+        self._closed = True
+        self._store.close()
 
     # ---- 传输层 -------------------------------------------------------
     def _send(self, message: dict[str, Any]) -> None:
@@ -128,6 +152,7 @@ class RpcServer:
             await self._jobs.shutdown()
             if self._pending:
                 await asyncio.gather(*self._pending, return_exceptions=True)
+            self.close()
 
     # ---- 分发 ---------------------------------------------------------
     async def dispatch(self, request: dict[str, Any]) -> Any:
@@ -198,6 +223,8 @@ class RpcServer:
         return [spec.model_dump(mode="json") for spec in step_specs()]
 
     async def _handle_pipeline_run(self, params: dict[str, Any]) -> dict[str, str]:
+        from .errors import RECIPE_INVALID
+
         raw_recipe = params.get("recipe")
         if raw_recipe is None:
             recipe = default_demo_recipe()
@@ -205,22 +232,34 @@ class RpcServer:
             try:
                 recipe = Recipe.model_validate(raw_recipe)
             except Exception as exc:  # noqa: BLE001 - 转成 1001
-                from .errors import RECIPE_INVALID
-
                 raise JsonRpcError(
                     RECIPE_INVALID, f"配方校验失败: {exc}", {"detail": str(exc)}
                 ) from exc
         if not recipe.steps:
-            from .errors import RECIPE_INVALID
-
             raise JsonRpcError(RECIPE_INVALID, "配方没有任何步骤", {"recipe": recipe.id})
         inputs = params.get("inputs") or []
         if not isinstance(inputs, list) or not all(isinstance(p, str) for p in inputs):
             raise JsonRpcError(INVALID_PARAMS, "inputs 必须是路径字符串数组")
+        options_param = params.get("options")
+        if options_param is None:
+            options: dict[str, Any] = {}
+        elif isinstance(options_param, dict):
+            options = options_param
+        else:
+            raise JsonRpcError(INVALID_PARAMS, "options 必须是 JSON 对象")
+        max_retries = params.get("max_retries", 1)
+        if not isinstance(max_retries, int) or max_retries < 0:
+            raise JsonRpcError(INVALID_PARAMS, "max_retries 必须是非负整数")
+        continue_on_error = bool(params.get("continue_on_error", False))
+        use_cache = not bool(params.get("no_cache", False))
         run = self._jobs.start(
             recipe,
             inputs=inputs,
             project_id=params.get("project_id"),
+            options=options,
+            max_retries=max_retries,
+            continue_on_error=continue_on_error,
+            use_cache=use_cache,
         )
         return {"job_id": run.id, "run_id": run.id}
 

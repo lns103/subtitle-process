@@ -1206,28 +1206,31 @@ mkvmerge --version
 
 > 每个里程碑结束必须：测试通过、`CHANGELOG.md` 增加条目、Conventional Commit 提交。
 
-### M0 骨架（3~5 天）
+### M0 骨架（3~5 天）✅
 
-- [ ] `engine` uv 项目可运行。
-- [ ] JSON-RPC server 支持 `engine.hello` / `engine.shutdown`。
-- [ ] `steps.list` 返回 1 个假步骤。
-- [ ] Tauri 应用可启动并 spawn sidecar。
-- [ ] React 首页可拖入文件，显示路径。
-- [ ] 假步骤发出 `step.progress`，UI 实时显示。
-- [ ] `docs/pipeline-v2/PROTOCOL.md` 完成。
+- [x] `engine` uv 项目可运行。
+- [x] JSON-RPC server 支持 `engine.hello` / `engine.shutdown`。
+- [x] `steps.list` 返回 1 个假步骤。
+- [x] Tauri 应用可启动并 spawn sidecar。
+- [x] React 首页可拖入文件，显示路径。
+- [x] 假步骤发出 `step.progress`，UI 实时显示。
+- [x] `docs/pipeline-v2/PROTOCOL.md` 完成。
 
 验收：拖入任意文件，点“运行示例”，日志区出现 0→100% 进度，无控制台窗口。
+（已用 CDP 连真实 WebView 验证；sidecar 使用 `CREATE_NO_WINDOW`，主程序 release 隐藏控制台。）
 
-### M1 引擎核心（5 天）
+### M1 引擎核心（5 天）✅
 
-- [ ] `models/registry/pipeline/store/cache/events` 完成。
-- [ ] SQLite 初始化与迁移。
-- [ ] 内容寻址产物存储。
-- [ ] CLI：`uv run python -m subtitle_engine run recipes/demo.yaml --input ...`。
-- [ ] Runner 单测覆盖率 > 80%。
-- [ ] 缓存命中、取消、失败停止下游均有用例。
+- [x] `models/registry/pipeline/store/cache/events` 完成。
+- [x] SQLite 初始化与迁移。
+- [x] 内容寻址产物存储。
+- [x] CLI：`uv run python -m subtitle_engine run recipes/demo.yaml --input ...`。
+- [x] Runner 单测覆盖率 > 80%（实测 86%）。
+- [x] 缓存命中、取消、失败停止下游均有用例。
+- [x] 取消时清理子进程树。
 
 验收：三步假流水线第二次运行全命中缓存；取消后无残留子进程。
+（`tests/test_cli.py` 跨进程验证全缓存；`tests/test_pipeline.py::test_cancel_kills_child_process_tree` 验证 taskkill。）
 
 ### M2 领域步骤（7 天）
 

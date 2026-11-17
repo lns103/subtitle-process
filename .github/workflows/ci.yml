@@ -120,6 +120,15 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri -> target
 
+      - name: Create placeholder sidecar
+        shell: pwsh
+        run: |
+          $path = "apps/desktop/src-tauri/binaries/subtitle-engine-x86_64-pc-windows-msvc.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+          if (-not (Test-Path -LiteralPath $path)) {
+            New-Item -ItemType File -Path $path | Out-Null
+          }
+
       - name: Check Rust shell
         working-directory: apps/desktop/src-tauri
         run: cargo check

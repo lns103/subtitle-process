@@ -1,7 +1,8 @@
 # 任务书：字幕流水线 v2（Tauri v2 + React + Python Sidecar）
 
-> 版本：1.0
+> 版本：1.1
 > 日期：2026-11-17
+> 变更：v1.1 将 D7 从 Python 3.12/3.13 改为 **Python 3.15**（与根项目统一）。
 > 分支：`feat/pipeline-v2`（基于 `dev` @ `466a460`）
 > 执行者：新的 AI session（**先完整读完本文件再动手**）
 > 必读：`AGENTS.md`、`README.md`、`CHANGELOG.md`
@@ -15,7 +16,7 @@
 - **桌面壳**：Tauri v2（Rust 只做窗口、拖拽、进程管理、系统能力）
 - **前端**：React 19 + TypeScript + Vite + Tailwind + shadcn/ui
 - **流水线画布**：React Flow（`@xyflow/react`），**自由连线 + 预设模板**
-- **引擎**：Python 3.12/3.13 sidecar，headless，JSON-RPC over stdio
+- **引擎**：Python 3.15 sidecar，headless，JSON-RPC over stdio
 - **Agent**：SDH 规范检查/去除，走 OpenAI 兼容 **API**
 - **领域逻辑**：**移植复用**现有 `tools/`，用 golden test 保证字节级一致
 
@@ -39,7 +40,7 @@
 | D4 | **复用现有 `tools/` 领域逻辑** | 不重写算法；用 golden test 对比旧实现 |
 | D5 | 旧 GUI 保留为参考实现 | 新代码放 `engine/`、`apps/desktop/`，迁移完成前不删旧代码 |
 | D6 | Windows 优先 | macOS/Linux 后续，代码不得写死盘符 |
-| D7 | Python 引擎目标 3.12/3.13 | 不跟随根项目 3.15，优先打包稳定性 |
+| D7 | Python 引擎目标 **3.15** | 与根项目统一（3.15.2），复用同一套已验证的 Tcl/Tk 9 打包方案 |
 | D8 | 通信使用 **stdio + JSONL + JSON-RPC 2.0** | 不开本地端口，不依赖 HTTP |
 | D9 | 本期不接 LinguaGacha CLI | 人工交接；预留步骤接口 |
 | D10 | 所有写操作可回滚 | `.bak`、内容寻址、审计日志 |
@@ -245,7 +246,7 @@ repo/
 响应：
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"engine":"subtitle-engine","version":"0.1.0","protocol":1,"python":"3.12.8","capabilities":["pipeline","agent","review"]}}
+{"jsonrpc":"2.0","id":1,"result":{"engine":"subtitle-engine","version":"0.1.0","protocol":1,"python":"3.15.2","capabilities":["pipeline","agent","review"]}}
 ```
 
 协议版本不匹配时，UI 必须阻止运行并提示升级。
@@ -1354,7 +1355,7 @@ mkvmerge --version
 
 | 工具 | 版本 |
 |---|---|
-| Python | 3.12 或 3.13 |
+| Python | 3.15 |
 | uv | 最新稳定版 |
 | Node.js | 22+ |
 | pnpm / npm | 最新稳定版 |

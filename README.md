@@ -118,8 +118,9 @@ npm run tauri dev                         # 开发模式（自动用 uv 拉起�
    .\scripts\package-portable.ps1
    ```
 
-   产物：`apps/desktop/src-tauri/target/release/bundle/portable/字幕工具箱_<version>_x64-portable.zip`，
+   产物：`apps/desktop/src-tauri/target/release/bundle/portable/subtitle-process_<version>_x64-portable.zip`，
    内含 `subtitle-desktop.exe`、`subtitle-engine.exe` 与 `README.txt`。
+   NSIS 安装包会重命名为 ASCII 的 `SubtitleProcess_<version>_x64-setup.exe`，避免 GitHub Release 丢弃中文字符。
 
 4. 自动更新：`tauri.conf.json` 的 `plugins.updater` 已预留 endpoints 与 pubkey 占位，
    发布前用 `tauri signer generate` 生成密钥并替换公钥，同时开启

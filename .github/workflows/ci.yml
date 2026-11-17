@@ -184,6 +184,10 @@ jobs:
           '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -LiteralPath $cfg -Encoding utf8
           npm run tauri build -- --bundles nsis --config $cfg
 
+      - name: Normalize bundle filenames
+        shell: pwsh
+        run: ./scripts/normalize-bundle-names.ps1
+
       - name: Create portable ZIP
         shell: pwsh
         run: ./scripts/package-portable.ps1 -TargetTriple x86_64-pc-windows-msvc

@@ -86,7 +86,7 @@ $productName = if ([string]::IsNullOrWhiteSpace([string]$config.productName)) {
 else {
     [string]$config.productName
 }
-$baseName = "${productName}_${Version}_${arch}-portable"
+$baseName = "subtitle-process_${Version}_${arch}-portable"
 $outDir = Join-Path $ReleaseDir "bundle\portable"
 $zipPath = Join-Path $outDir ($baseName + ".zip")
 $stageDir = Join-Path ([System.IO.Path]::GetTempPath()) ("subtitle-portable-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))

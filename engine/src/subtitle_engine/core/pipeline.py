@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _WHEN_RE = re.compile(r"^\$\{options\.([A-Za-z_][A-Za-z0-9_.]*)\}$")
 _RETRYABLE_ERRNOS = {errno.EAGAIN, errno.EBUSY, errno.ETXTBSY, errno.EACCES}
+_CACHE_SEP = "\x1f"
 
 
 class CancellationToken:
@@ -70,6 +71,7 @@ class Job:
     task: asyncio.Task[None] | None = None
     started_at_monotonic: float = field(default_factory=time.monotonic)
     options: dict[str, Any] = field(default_factory=dict)
+    inputs: list[str] = field(default_factory=list)
     continue_on_error: bool = False
     max_retries: int = 1
     use_cache: bool = True
@@ -198,6 +200,7 @@ class JobManager:
             run=run,
             emitter=emitter,
             options=options or {},
+            inputs=list(inputs or []),
             continue_on_error=continue_on_error,
             max_retries=max_retries,
             use_cache=use_cache,
@@ -470,7 +473,11 @@ class JobManager:
     ) -> dict[str, Any]:
         available: list[Artifact] = []
         for dep in node.needs:
-            available.extend(outputs_by_step.get(dep, {}).values())
+            for value in outputs_by_step.get(dep, {}).values():
+                if isinstance(value, list):
+                    available.extend(value)
+                else:
+                    available.append(value)
 
         resolved: dict[str, Any] = {}
         for port_name, spec in step_cls.inputs.items():
@@ -504,15 +511,18 @@ class JobManager:
         if not job.use_cache or self._cache is None or not step_cls.deterministic:
             return None
         flat_inputs = {
-            port: artifact
-            for port, artifact in inputs.items()
-            if isinstance(artifact, Artifact)
+            port: value
+            for port, value in inputs.items()
+            if isinstance(value, Artifact) or isinstance(value, list)
         }
+        # 无上游产物的步骤（如 media.probe）同样依赖运行输入路径；把 inputs
+        # 纳入缓存键，避免同一 data-dir 下换一个视频仍命中旧结果。
+        extra = _CACHE_SEP.join(sorted(job.inputs))
         return self._cache.compute_key(
             step_id=node.uses,
             options=options.model_dump(mode="json"),
             inputs=flat_inputs,
-            extra="",
+            extra=extra,
         )
 
     async def _execute_step(
@@ -543,6 +553,7 @@ class JobManager:
             is_cancelled=lambda: job.token.cancelled,
             services=Services(store=self._store, cache=self._cache, processes=self._processes),
             inputs=inputs,
+            run_inputs=tuple(job.inputs),
         )
         step = step_cls()
         attempts = 0
@@ -572,30 +583,44 @@ class JobManager:
                 f"步骤 {node.id} 返回值必须是 {{端口: Artifact}}",
                 {"step": node.id},
             )
-        for port, artifact in result.items():
+        for port, value in result.items():
             if port not in step_cls.outputs:
                 raise JsonRpcError(
                     STEP_FAILED,
                     f"步骤 {node.id} 返回未声明的输出端口: {port}",
                     {"step": node.id},
                 )
-            if not isinstance(artifact, Artifact):
+            spec = step_cls.outputs[port]
+            if spec.multiple:
+                if not isinstance(value, list) or not all(
+                    isinstance(item, Artifact) for item in value
+                ):
+                    raise JsonRpcError(
+                        STEP_FAILED,
+                        f"步骤 {node.id} 端口 {port} 的返回值必须是 Artifact 列表",
+                        {"step": node.id, "port": port},
+                    )
+            elif not isinstance(value, Artifact):
                 raise JsonRpcError(
                     STEP_FAILED,
                     f"步骤 {node.id} 端口 {port} 的返回值不是 Artifact",
-                    {"step": node.id},
+                    {"step": node.id, "port": port},
                 )
         return result
 
-    def _emit_artifact(self, job: Job, step_id: str, port: str, artifact: Artifact) -> None:
-        job.emitter.emit(
-            "step.artifact",
-            step=step_id,
-            key=port,
-            hash=artifact.hash,
-            path=artifact.path,
-            kind=artifact.kind,
-        )
+    def _emit_artifact(
+        self, job: Job, step_id: str, port: str, artifact: Artifact | list[Artifact]
+    ) -> None:
+        artifacts = artifact if isinstance(artifact, list) else [artifact]
+        for item in artifacts:
+            job.emitter.emit(
+                "step.artifact",
+                step=step_id,
+                key=port,
+                hash=item.hash,
+                path=item.path,
+                kind=item.kind,
+            )
 
     def _mark_failed(self, job: Job, state: StepState, error: JsonRpcError) -> None:
         state.status = "failed"

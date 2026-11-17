@@ -43,6 +43,9 @@ class SimpleStepContext:
     services: Any = None
     project: Any = None
     inputs: dict[str, Any] = field(default_factory=dict)
+    #: 配方/CLI 传入的原始输入路径（``pipeline.run.inputs``），供无上游端口的
+    #: 步骤（如 ``media.probe``）读取源文件。与端口注入的 ``inputs`` 无关。
+    run_inputs: tuple[str, ...] = ()
 
 
 class Step(ABC):

@@ -1232,15 +1232,19 @@ mkvmerge --version
 验收：三步假流水线第二次运行全命中缓存；取消后无残留子进程。
 （`tests/test_cli.py` 跨进程验证全缓存；`tests/test_pipeline.py::test_cancel_kills_child_process_tree` 验证 taskkill。）
 
-### M2 领域步骤（7 天）
+### M2 领域步骤（7 天）✅
 
-- [ ] `media.probe` / `media.extract_subtitles` 移植。
-- [ ] `sub.normalize` / `sub.export` 移植。
-- [ ] `sub.validate` 新增。
-- [ ] Golden test 与旧实现一致。
-- [ ] ffmpeg/mkvmerge 缺失错误可读。
+- [x] `media.probe` / `media.extract_subtitles` 移植。
+- [x] `sub.normalize` / `sub.export` 移植。
+- [x] `sub.validate` 新增。
+- [x] Golden test 与旧实现一致。
+- [x] ffmpeg/mkvmerge 缺失错误可读（`1006` + `data.tool`）。
 
 验收：用 2 个 fixture 视频跑出 SRT，与旧版输出逐段一致（忽略路径/时间戳）。
+（`tests/test_media_steps.py` 动态生成 MKV/MP4（srt/mov_text）fixture，跑通
+`probe → extract → normalize → validate → export`，并与旧 `SubtitleExtractor`
++ `srt_process` 输出逐字节对比；`tests/test_domain_golden.py` 在无需 ffmpeg 的环境
+直接导入旧 `tools/` 算法做 Golden 对比。）
 
 ### M3 项目与配方（5 天）
 

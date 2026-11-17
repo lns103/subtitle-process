@@ -29,7 +29,7 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
 
 | 参数 | 说明 |
 |---|---|
-| `--input PATH` | 输入路径，可重复 |
+| `--input PATH` | 输入路径，可重复；`media.probe` 默认读取第一个路径 |
 | `--data-dir DIR` | 数据目录；默认 `%APPDATA%/SubtitleProcess` |
 | `--project-id ID` | 关联项目（同项目并发返回 `1004`） |
 | `--max-retries N` | 可重试错误的最大重试次数（默认 1） |
@@ -51,9 +51,14 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
 ## 结构
 
 - `core/`：models、registry、pipeline（拓扑/缓存/重试/取消/并发）、store、cache、events、processes、recipes
-- `steps/`：步骤实现，`@register_step` 自动注册（`demo.*` 为 M1 演示步骤）
+- `steps/`：步骤实现，`@register_step` 自动注册
+  - `demo.*`：M1 演示步骤
+  - `media.probe` / `media.extract_subtitles`：ffprobe / ffmpeg / MKVToolNix
+  - `sub.normalize` / `sub.validate` / `sub.export`：清理、校验与导出
+- `domain/`：纯算法层（SRT 解析、清理、媒体解析、路径、校验），可在无 GUI/子进程环境单测
+- `adapters/`：ffmpeg / ffprobe / mkvmerge 子进程封装，缺失依赖抛 `1006`
 - `rpc/`：JSONL 分帧、JSON-RPC 服务端、错误码
-- `agents/`、`domain/`、`adapters/`：M2/M6 接入真实字幕与媒体逻辑
+- `agents/`：M6 接入 Agent
 
 ## 约定
 

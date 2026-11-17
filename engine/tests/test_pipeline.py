@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from subtitle_engine import steps as _steps  # noqa: F401 - 触发步骤注册
 from subtitle_engine import version
 from subtitle_engine.core.cache import StepCache
 from subtitle_engine.core.models import Recipe, StepNode

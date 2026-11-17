@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
 from ..core.cache import StepCache
 from ..core.models import Event, Recipe, Run, StepNode
@@ -20,7 +21,6 @@ from ..core.paths import resolve_data_dir
 from ..core.pipeline import JobManager
 from ..core.registry import step_specs
 from ..core.store import Store
-from ..steps import demo as _demo_steps  # noqa: F401 - 导入以完成步骤注册
 from . import framing
 from .errors import (
     INTERNAL_ERROR,

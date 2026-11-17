@@ -227,7 +227,9 @@ M1 执行约定：
 - `when` 仅支持 `${options.<key>}`（可嵌套，如 `${options.a.b}`）；不支持的表达式显式报 `-32602`，不会静默跳过。
 - `with` 即 `options`；`ui` 仅前端使用，执行前可剥离。
 - 输入端口按 `kind` 从上游输出自动注入；必填端口没有匹配产物时该步失败。
+- 端口声明 `multiple: true` 时，步骤返回 Artifact 列表；每个产物依次发出一条 `step.artifact`（`key` 相同、`path`/`hash` 不同），缓存键包含列表内全部产物哈希。
 - 确定性步骤默认启用缓存；命中时该步 `cached=true`，并照常发出 `step.artifact`。
+- `pipeline.run.inputs` 会注入步骤上下文（首个输入可供 `media.probe` 直接读取），步骤也可用 `options.source` 显式覆盖。
 
 ## 7. 事件
 

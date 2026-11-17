@@ -4,6 +4,20 @@
 
 ## Unreleased — Pipeline v2
 
+### M2 领域步骤
+
+#### 新增
+- **领域层（纯函数）**：`domain/clean.py` 移植 `tools/srt_process.py` + `tools/chs_srt_format.py` 的清理、短句/相同行合并与中文标点规范化；`domain/srt.py` 提供宽容解析与 LF 序列化；`domain/media.py` 移植 ffprobe 解析、MKV 补充、默认轨道选择与输出命名；`domain/paths.py` 移植 Windows 长路径/8.3 短路径处理；`domain/validate.py` 新增时间轴倒挂/重叠、空文本、时长、CPS、行宽校验并输出结构化报告。
+- **媒体步骤**：`media.probe`（ffprobe，MKV 编码未知时 mkvmerge -J 补充）与 `media.extract_subtitles`（ffmpeg / mkvextract 双路径，保留 VTT→SRT 转换与进度解析）。
+- **字幕步骤**：`sub.normalize`（括号/标签/人名提示/大写行/合并开关 + 可选中文标点）、`sub.validate`（warnings 报告，可配置 `fail_on_error`）、`sub.export`（UTF-8 + LF、覆盖前 `.bak`、输出目录可配）。
+- **外部依赖错误**：ffmpeg / ffprobe / mkvmerge / mkvextract 缺失统一映射为 `1006`，`data.tool` 与安装提示可直接展示。
+- **多产物端口**：Runner / 缓存支持 `multiple: true` 端口返回 Artifact 列表；缓存键纳入列表内所有产物哈希，避免多轨道提取后下游误命中旧缓存。
+- **运行输入**：`pipeline.run.inputs` / CLI `--input` 注入步骤上下文，`media.probe` 可直接读取首个输入文件（也可用 `options.source` 覆盖）。
+
+#### 工程改进
+- **测试**：新增领域 Golden Test（直接导入旧 `tools/` 函数逐字节对比）、媒体解析/轨道选择/校验单测、真实 ffmpeg 生成的 MKV + MP4 双 fixture 端到端测试（探测→提取→规范→校验→导出，并与旧 `SubtitleExtractor` 输出对比）、mkvextract 分支与 `1006` 错误映射。引擎测试增至 **136 个**，全部通过；`steps.list` 自动暴露 M2 步骤 Schema。
+- 旧 `app_ui.py` / `ui/` / `tools/` 保持不变，继续作为迁移对比基准。
+
 ### M1 引擎核心
 
 #### 新增

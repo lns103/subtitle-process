@@ -39,7 +39,7 @@ class StepCache:
         *,
         step_id: str,
         options: dict[str, Any],
-        inputs: dict[str, Artifact],
+        inputs: dict[str, Artifact | list[Artifact]],
         extra: str = "",
     ) -> str:
         """计算缓存键：各字段以 ``\\x1f`` 分隔后取 sha256 十六进制。"""
@@ -50,7 +50,13 @@ class StepCache:
             ensure_ascii=False,
             allow_nan=False,
         )
-        input_hashes = sorted(artifact.hash for artifact in inputs.values())
+        input_hashes: list[str] = []
+        for value in inputs.values():
+            if isinstance(value, list):
+                input_hashes.extend(artifact.hash for artifact in value)
+            else:
+                input_hashes.append(value.hash)
+        input_hashes.sort()
         material = _SEP.join(
             [
                 step_id,
@@ -62,8 +68,8 @@ class StepCache:
         )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
-    def get(self, key: str) -> dict[str, Artifact] | None:
-        """读取缓存；命中返回 ``{port: Artifact}``，否则返回 ``None``。"""
+    def get(self, key: str) -> dict[str, Artifact | list[Artifact]] | None:
+        """读取缓存；命中返回 ``{port: Artifact | list[Artifact]}``。"""
         payload = self._store.get_cache_payload(key)
         if payload is None:
             return None
@@ -74,25 +80,46 @@ class StepCache:
             self._discard(key, f"缓存负载无法解析: {exc}")
             return None
 
-        resolved: dict[str, Artifact] = {}
-        for port, artifact_hash in outputs.items():
-            artifact = self._store.get_artifact(artifact_hash)
-            if artifact is None:
-                self._discard(key, f"产物 {artifact_hash} 缺失")
-                return None
-            if artifact.hash != artifact_hash:
-                self._discard(key, f"产物哈希不一致: 期望 {artifact_hash}, 实际 {artifact.hash}")
-                return None
-            if not self._store.ensure_artifact(artifact):
-                self._discard(key, f"产物 {artifact_hash} 校验失败")
-                return None
-            resolved[port] = artifact
+        resolved: dict[str, Artifact | list[Artifact]] = {}
+        for port, hashes in outputs.items():
+            if isinstance(hashes, list):
+                items: list[Artifact] = []
+                for artifact_hash in hashes:
+                    artifact = self._resolve_artifact(key, artifact_hash)
+                    if artifact is None:
+                        return None
+                    items.append(artifact)
+                resolved[port] = items
+            else:
+                artifact = self._resolve_artifact(key, hashes)
+                if artifact is None:
+                    return None
+                resolved[port] = artifact
         return resolved
 
-    def put(self, key: str, outputs: dict[str, Artifact]) -> None:
+    def _resolve_artifact(self, key: str, artifact_hash: str) -> Artifact | None:
+        artifact = self._store.get_artifact(artifact_hash)
+        if artifact is None:
+            self._discard(key, f"产物 {artifact_hash} 缺失")
+            return None
+        if artifact.hash != artifact_hash:
+            self._discard(key, f"产物哈希不一致: 期望 {artifact_hash}, 实际 {artifact.hash}")
+            return None
+        if not self._store.ensure_artifact(artifact):
+            self._discard(key, f"产物 {artifact_hash} 校验失败")
+            return None
+        return artifact
+
+    def put(self, key: str, outputs: dict[str, Artifact | list[Artifact]]) -> None:
         """写入缓存；``outputs`` 允许为空，用于缓存空结果。"""
+        serialized: dict[str, str | list[str]] = {}
+        for port, value in outputs.items():
+            if isinstance(value, list):
+                serialized[port] = [artifact.hash for artifact in value]
+            else:
+                serialized[port] = value.hash
         payload = json.dumps(
-            {"outputs": {port: artifact.hash for port, artifact in outputs.items()}},
+            {"outputs": serialized},
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -105,9 +132,10 @@ class StepCache:
         self._store.delete_cache_entry(key)
 
 
-def _parse_payload(payload: str) -> dict[str, str]:
-    """解析并校验缓存负载，返回 ``{port: artifact_hash}``。
+def _parse_payload(payload: str) -> dict[str, str | list[str]]:
+    """解析并校验缓存负载，返回 ``{port: artifact_hash | [hashes]}``。
 
+    单值形式保持与旧缓存兼容；列表形式用于 ``multiple`` 端口。
     任何结构不符都抛出 ``TypeError``/``ValueError``，由调用方按未命中处理。
     """
     data = json.loads(payload)
@@ -116,9 +144,14 @@ def _parse_payload(payload: str) -> dict[str, str]:
     outputs = data.get("outputs")
     if not isinstance(outputs, dict):
         raise TypeError("outputs 必须是对象")
-    result: dict[str, str] = {}
-    for port, artifact_hash in outputs.items():
-        if not isinstance(port, str) or not isinstance(artifact_hash, str):
-            raise TypeError("端口与产物哈希必须是字符串")
-        result[port] = artifact_hash
+    result: dict[str, str | list[str]] = {}
+    for port, value in outputs.items():
+        if not isinstance(port, str):
+            raise TypeError("端口名必须是字符串")
+        if isinstance(value, str):
+            result[port] = value
+        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+            result[port] = value
+        else:
+            raise TypeError("产物哈希必须是字符串或字符串列表")
     return result

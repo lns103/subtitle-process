@@ -1,6 +1,6 @@
 [project]
 name = "subtitle-engine"
-version = "0.1.0"
+version = "1.0.0-alpha1"
 description = "Headless subtitle pipeline engine (JSON-RPC over stdio)"
 readme = "README.md"
 requires-python = ">=3.15"

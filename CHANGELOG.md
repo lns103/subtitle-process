@@ -4,6 +4,10 @@
 
 ## Unreleased — Pipeline v2
 
+### 版本
+
+- 版本号提升至 **`1.0.0-alpha1`**：引擎、桌面端、Tauri 配置及 `uv.lock` / `Cargo.lock` / `package-lock.json` 保持同步。
+
 ### 主线清理与持续集成
 
 #### 变更

@@ -78,7 +78,7 @@ subtitle-engine.exe --rpc stdio
 ```json
 {"jsonrpc":"2.0","id":1,"result":{
   "engine":"subtitle-engine",
-  "version":"0.1.0",
+  "version":"1.0.0-alpha1",
   "protocol":1,
   "python":"3.15.2",
   "capabilities":["pipeline"]

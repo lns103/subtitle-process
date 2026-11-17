@@ -4,6 +4,9 @@ import type {
   ProjectSummary,
   RecipeDefinition,
   RecipeSummary,
+  ReviewDecision,
+  ReviewItem,
+  ReviewUndoResult,
   StepSpec,
   ValidationResult,
 } from "./models";
@@ -108,4 +111,18 @@ export function runRecipePayload(params: {
 
 export function cancelJob(jobId: string): Promise<string> {
   return engineCall<string>("job.cancel", { job_id: jobId });
+}
+
+// ---- M5 人工审核 -------------------------------------------------------
+
+export function listReviews(runId: string): Promise<ReviewItem[]> {
+  return engineCall<ReviewItem[]>("review.list", { run_id: runId });
+}
+
+export function submitReview(runId: string, decisions: ReviewDecision[]): Promise<string> {
+  return engineCall<string>("review.submit", { run_id: runId, decisions });
+}
+
+export function undoReview(runId: string): Promise<ReviewUndoResult> {
+  return engineCall<ReviewUndoResult>("review.undo", { run_id: runId });
 }

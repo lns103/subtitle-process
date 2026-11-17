@@ -23,4 +23,13 @@ describe("hash 路由", () => {
     const route = { name: "editor", recipeId: "my.recipe-1" } as const;
     expect(parseRoute(routeHash(route))).toEqual(route);
   });
+
+  it("解析审核路由", () => {
+    expect(parseRoute("#/review/run_01")).toEqual({ name: "review", runId: "run_01" });
+    expect(parseRoute("#/review/run%2001/")).toEqual({ name: "review", runId: "run 01" });
+    expect(parseRoute("#/review/")).toEqual({ name: "home" });
+    expect(routeHash({ name: "review", runId: "run_01" })).toBe("#/review/run_01");
+    const route = { name: "review", runId: "run 01" } as const;
+    expect(parseRoute(routeHash(route))).toEqual(route);
+  });
 });

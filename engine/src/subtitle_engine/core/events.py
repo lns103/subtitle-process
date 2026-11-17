@@ -20,11 +20,12 @@ class EventEmitter:
         *,
         run_id: str | None = None,
         project_id: str | None = None,
+        seq: int = 0,
     ) -> None:
         self._send = send
         self._run_id = run_id
         self._project_id = project_id
-        self._seq = 0
+        self._seq = max(0, int(seq))
 
     @property
     def seq(self) -> int:

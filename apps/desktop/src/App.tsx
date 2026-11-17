@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Server, Workflow } from "lucide-react";
 import { DropZone } from "./features/dropzone/DropZone";
 import { EditorPage } from "./features/editor/EditorPage";
+import { ReviewPage } from "./features/review/ReviewPage";
 import { RunView } from "./features/run-view/RunView";
 import { onEngineEvent, onEngineStatus } from "./lib/events";
 import type { Project } from "./lib/models";
@@ -65,6 +66,10 @@ export default function App() {
 
   if (route.name === "editor") {
     return <EditorPage initialRecipeId={route.recipeId} paths={paths} />;
+  }
+
+  if (route.name === "review") {
+    return <ReviewPage runId={route.runId} />;
   }
 
   return (

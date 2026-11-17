@@ -217,6 +217,78 @@ class Event(BaseModel):
     ts: datetime = Field(default_factory=utc_now)
 
 
+ReviewAction = Literal["keep", "remove", "rewrite"]
+ReviewStatus = Literal["pending", "submitted"]
+ReviewItemStatus = Literal["pending", "accepted", "rejected"]
+
+
+class ReviewItem(BaseModel):
+    """人工审核项（PROTOCOL.md §8）。
+
+    ``before`` / ``after`` 均为单段文本；审核绝不修改时间轴。``artifact_hash``
+    与 ``file`` 定位候选所属的字幕产物，便于一次审核多条字幕。
+    """
+
+    id: str
+    review_id: str = ""
+    review_status: ReviewStatus = "pending"
+    status: ReviewItemStatus = "pending"
+    segment_index: int
+    start_ms: int
+    end_ms: int
+    before: str
+    after: str = ""
+    action: ReviewAction = "keep"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+    reasons: list[str] = Field(default_factory=list)
+    source: Literal["rules", "agent", "human"] = "rules"
+    file: str = ""
+    artifact_hash: str = ""
+
+
+class ReviewDecision(BaseModel):
+    """``review.submit`` 中的单条决策；``after`` 支持人工改写。"""
+
+    id: str
+    action: Literal["accept", "reject"]
+    after: str | None = None
+
+
+class Review(BaseModel):
+    """一次 HITL 审核的持久化记录（SQLite ``reviews`` 表）。"""
+
+    id: str
+    run_id: str
+    step_id: str
+    status: ReviewStatus = "pending"
+    items: list[ReviewItem] = Field(default_factory=list)
+    decisions: list[ReviewDecision] = Field(default_factory=list)
+    audit_path: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class RunState(BaseModel):
+    """等待人工审核时的断点续跑状态（仅引擎内部使用，不发给 UI）。
+
+    ``step_outputs`` 保存已完成步骤的端口→产物，恢复时可跳过上游重算。
+    ``seq`` 保存暂停时的事件序号，续跑后事件序号继续单调递增。
+    """
+
+    run_id: str
+    recipe: Recipe
+    options: dict[str, Any] = Field(default_factory=dict)
+    inputs: list[str] = Field(default_factory=list)
+    step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    project_id: str | None = None
+    workspace: str = ""
+    continue_on_error: bool = False
+    max_retries: int = 1
+    use_cache: bool = True
+    seq: int = 0
+
+
 class Settings(BaseModel):
     """M0 占位；M6/M7 逐步补齐。"""
 

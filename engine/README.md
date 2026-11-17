@@ -43,7 +43,7 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
 
 ```
 <data-dir>/
-├─ store.db                 # SQLite：projects/runs/artifacts/reviews/settings/step_cache
+├─ store.db                 # SQLite：projects/runs/artifacts/reviews/run_state/settings/step_cache
 ├─ artifacts/<sha256>/      # 内容寻址产物，同哈希复用
 └─ workspace/               # 步骤工作目录
 ```
@@ -55,7 +55,8 @@ uv run python -m subtitle_engine run recipes/demo.yaml --input video.mkv --json
   - `demo.*`：M1 演示步骤
   - `media.probe` / `media.extract_subtitles`：ffprobe / ffmpeg / MKVToolNix
   - `sub.normalize` / `sub.validate` / `sub.export`：清理、校验与导出
-- `domain/`：纯算法层（SRT 解析、清理、媒体解析、路径、校验），可在无 GUI/子进程环境单测
+  - `sub.sdh_scan` / `human.review`：SDH 规则标记、HITL 审核与审计（M5）
+- `domain/`：纯算法层（SRT 解析、清理、SDH 规则、媒体解析、路径、校验），可在无 GUI/子进程环境单测
 - `adapters/`：ffmpeg / ffprobe / mkvmerge 子进程封装，缺失依赖抛 `1006`
 - `rpc/`：JSONL 分帧、JSON-RPC 服务端、错误码
 - `agents/`：M6 接入 Agent

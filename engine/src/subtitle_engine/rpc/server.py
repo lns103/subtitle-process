@@ -18,13 +18,23 @@ from typing import Any, BinaryIO
 
 from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
+from ..core.audit import restore_from_audit
 from ..core.cache import StepCache
-from ..core.models import Event, Project, ProjectOutput, Recipe, Run, StepNode
+from ..core.models import (
+    Event,
+    Project,
+    ProjectOutput,
+    Recipe,
+    ReviewDecision,
+    Run,
+    StepNode,
+)
 from ..core.paths import resolve_data_dir
 from ..core.pipeline import JobManager
 from ..core.projects import ProjectManager
 from ..core.recipe_library import RecipeLibrary
 from ..core.registry import step_specs
+from ..core.reviews import ReviewStore
 from ..core.store import Store
 from ..core.validation import ensure_valid, validate_recipe
 from . import framing
@@ -34,6 +44,7 @@ from .errors import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     RECIPE_INVALID,
+    STEP_FAILED,
     JsonRpcError,
     error_response,
     notification,
@@ -64,7 +75,7 @@ class RpcServer:
         *,
         sink: MessageSink | None = None,
         data_dir: str | Path | None = None,
-        capabilities: tuple[str, ...] = ("pipeline", "recipes", "project"),
+        capabilities: tuple[str, ...] = ("pipeline", "recipes", "project", "review"),
     ) -> None:
         self._sink = sink
         self._writer: BinaryIO | None = None
@@ -79,12 +90,14 @@ class RpcServer:
         self._cache = StepCache(self._store, engine_version=engine_version.__version__)
         self._recipes = RecipeLibrary(self._data_dir / "recipes")
         self._projects = ProjectManager(self._store, self._data_dir / "projects")
+        self._reviews = ReviewStore(self._store)
         self._run_artifacts: dict[str, list[dict[str, str]]] = {}
         self._closed = False
         self._jobs = JobManager(
             self._emit_event,
             store=self._store,
             cache=self._cache,
+            reviews=self._reviews,
             workspace=workspace,
         )
         self._handlers: dict[str, Handler] = {
@@ -103,6 +116,9 @@ class RpcServer:
             "project.list": self._handle_project_list,
             "project.get": self._handle_project_get,
             "project.delete": self._handle_project_delete,
+            "review.list": self._handle_review_list,
+            "review.submit": self._handle_review_submit,
+            "review.undo": self._handle_review_undo,
             "artifact.reveal": self._handle_artifact_reveal,
         }
 
@@ -145,8 +161,28 @@ class RpcServer:
     def _emit_event(self, event: Event) -> None:
         self._track_artifacts(event)
         self._send(notification("event", event.model_dump(mode="json", exclude_none=True)))
+        if event.type == "review.requested" and event.run_id:
+            self._mark_project_waiting_review(event)
         if event.type == "run.finished" and event.run_id:
             self._finish_project_run(event)
+
+    def _mark_project_waiting_review(self, event: Event) -> None:
+        """HITL 暂停时同步项目状态，重启后 ``project.list`` 仍显示 waiting_review。"""
+        run_id = event.run_id
+        if not run_id:
+            return
+        try:
+            try:
+                run = self._jobs.get(run_id)
+            except JsonRpcError:
+                run = self._store.get_run(run_id)
+            if run is None or not run.project_id:
+                return
+            updated = self._projects.mark_review(run)
+            if updated is not None:
+                self._emit_project(updated)
+        except Exception:  # noqa: BLE001 - 状态同步失败必须记录，但不能破坏事件流
+            logger.exception("标记项目等待审核失败: run=%s", run_id)
 
     def _track_artifacts(self, event: Event) -> None:
         if event.type != "step.artifact" or not event.run_id:
@@ -438,6 +474,106 @@ class RpcServer:
         self._projects.delete(_require_str(params, "id"))
         return "ok"
 
+    async def _handle_review_list(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        run_id = _require_str(params, "run_id")
+        items: list[dict[str, Any]] = []
+        for review in self._reviews.list_for_run(run_id):
+            for item in review.items:
+                item.review_id = review.id
+                item.review_status = review.status
+                items.append(item.model_dump(mode="json"))
+        return items
+
+    async def _handle_review_submit(self, params: dict[str, Any]) -> str:
+        run_id = _require_str(params, "run_id")
+        raw = params.get("decisions")
+        if not isinstance(raw, list):
+            raise JsonRpcError(INVALID_PARAMS, "decisions 必须是数组")
+        decisions: list[ReviewDecision] = []
+        for entry in raw:
+            try:
+                decisions.append(ReviewDecision.model_validate(entry))
+            except Exception as exc:  # noqa: BLE001 - 转成参数错误
+                raise JsonRpcError(
+                    INVALID_PARAMS, f"审核决策非法: {exc}", {"entry": entry}
+                ) from exc
+
+        review = self._reviews.pending(run_id)
+        if review is None:
+            # 幂等恢复：提交后若引擎在续跑前崩溃，允许再次调用 resume。
+            latest = self._reviews.find(run_id)
+            stored_run = self._store.get_run(run_id)
+            if (
+                latest is not None
+                and latest.status == "submitted"
+                and stored_run is not None
+                and stored_run.status == "waiting_review"
+            ):
+                self._jobs.resume(run_id)
+                return "ok"
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"没有待审核项: {run_id}",
+                {"run_id": run_id},
+            )
+        try:
+            submitted = self._reviews.submit(review, decisions)
+        except ValueError as exc:
+            raise JsonRpcError(
+                INVALID_PARAMS, str(exc), {"run_id": run_id}
+            ) from exc
+
+        run = None
+        try:
+            run = self._jobs.get(run_id)
+        except JsonRpcError:
+            run = self._store.get_run(run_id)
+        if run is not None and run.project_id:
+            project = self._store.get_project(run.project_id)
+            if project is not None:
+                project.status = "running"
+                self._store.save_project(project)
+
+        event = Event(
+            event_id=f"evt_rev_{submitted.id}",
+            run_id=run_id,
+            project_id=run.project_id if run else None,
+            seq=0,
+            type="review.resolved",
+            review_id=submitted.id,
+        )
+        self._send(notification("event", event.model_dump(mode="json", exclude_none=True)))
+        self._jobs.resume(run_id)
+        return "ok"
+
+    async def _handle_review_undo(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _require_str(params, "run_id")
+        reviews = [
+            review
+            for review in self._reviews.list_for_run(run_id)
+            if review.status == "submitted" and review.audit_path
+        ]
+        if not reviews:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"没有可撤销的审核记录: {run_id}",
+                {"run_id": run_id},
+            )
+        review = reviews[-1]
+        try:
+            restored = restore_from_audit(self._store, review.audit_path)
+        except (OSError, RuntimeError) as exc:
+            raise JsonRpcError(
+                STEP_FAILED,
+                f"撤销审核失败: {exc}",
+                {"run_id": run_id, "audit_path": review.audit_path},
+            ) from exc
+        return {
+            "review_id": review.id,
+            "audit_path": review.audit_path,
+            "restored": restored,
+        }
+
     async def _handle_artifact_reveal(self, params: dict[str, Any]) -> str:
         _reveal_path(_require_str(params, "path"))
         return "ok"
@@ -479,7 +615,15 @@ class RpcServer:
         return self._store.get_setting("agent.configured") == "1"
 
     async def _handle_job_status(self, params: dict[str, Any]) -> dict[str, Any]:
-        run: Run = self._jobs.get(_require_str(params, "job_id"))
+        run_id = _require_str(params, "job_id")
+        try:
+            run: Run = self._jobs.get(run_id)
+        except JsonRpcError:
+            # 应用重启后内存 job 表为空；从 SQLite 读取最近状态（M5 HITL）。
+            stored = self._store.get_run(run_id)
+            if stored is None:
+                raise
+            run = stored
         return run.model_dump(mode="json", exclude_none=True)
 
     async def _handle_job_cancel(self, params: dict[str, Any]) -> str:

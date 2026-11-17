@@ -25,9 +25,19 @@ from ..rpc.errors import (
     JsonRpcError,
 )
 from .events import EventEmitter
-from .models import Artifact, Event, Recipe, Run, StepNode, StepState, utc_now
+from .models import (
+    Artifact,
+    Event,
+    Recipe,
+    Run,
+    RunState,
+    StepNode,
+    StepState,
+    utc_now,
+)
 from .processes import ProcessRegistry
 from .registry import get_step
+from .reviews import ReviewPending
 from .step import SimpleStepContext
 
 logger = logging.getLogger(__name__)
@@ -60,6 +70,7 @@ class Services:
 
     store: Any = None
     cache: Any = None
+    reviews: Any = None
     processes: ProcessRegistry = field(default_factory=ProcessRegistry)
 
 
@@ -77,6 +88,8 @@ class Job:
     use_cache: bool = True
     workspace: Path | None = None
     project: Any = None
+    outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    recipe: Recipe | None = None
     finished_emitted: bool = False
 
 
@@ -108,6 +121,38 @@ def evaluate_when(expression: str, options: dict[str, Any]) -> bool:
             )
         value = value[part]
     return bool(value)
+
+
+def _serialize_outputs(
+    outputs: dict[str, dict[str, Artifact | list[Artifact]]]
+) -> dict[str, dict[str, Any]]:
+    serialized: dict[str, dict[str, Any]] = {}
+    for step_id, ports in outputs.items():
+        serialized[step_id] = {
+            port: (
+                [item.model_dump(mode="json") for item in value]
+                if isinstance(value, list)
+                else value.model_dump(mode="json")
+            )
+            for port, value in ports.items()
+        }
+    return serialized
+
+
+def _restore_outputs(
+    payload: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Artifact | list[Artifact]]]:
+    restored: dict[str, dict[str, Artifact | list[Artifact]]] = {}
+    for step_id, ports in payload.items():
+        restored[step_id] = {}
+        for port, value in ports.items():
+            if isinstance(value, list):
+                restored[step_id][port] = [
+                    Artifact.model_validate(item) for item in value
+                ]
+            else:
+                restored[step_id][port] = Artifact.model_validate(value)
+    return restored
 
 
 def topological_order(recipe: Recipe) -> list[StepNode]:
@@ -150,6 +195,7 @@ class JobManager:
         *,
         store: Any = None,
         cache: Any = None,
+        reviews: Any = None,
         workspace: Path | None = None,
         max_parallel_jobs: int = 2,
         retry_delay_s: float = 0.2,
@@ -159,6 +205,7 @@ class JobManager:
         self._send_event = send_event
         self._store = store
         self._cache = cache
+        self._reviews = reviews
         self._workspace = workspace or Path.cwd()
         self._retry_delay_s = retry_delay_s
         self._jobs: dict[str, Job] = {}
@@ -210,6 +257,7 @@ class JobManager:
             use_cache=use_cache,
             workspace=workspace,
             project=project,
+            recipe=recipe,
         )
         self._jobs[run_id] = job
         if project_id is not None:
@@ -224,9 +272,90 @@ class JobManager:
     def get(self, run_id: str) -> Run:
         return self._require(run_id).run
 
+    def resume(self, run_id: str) -> Run:
+        """从 ``waiting_review`` 断点恢复 run（可跨进程重启）。"""
+        job = self._jobs.get(run_id)
+        if job is not None and job.task is not None and not job.task.done():
+            raise JsonRpcError(
+                ENGINE_BUSY, f"运行 {run_id} 仍在执行中", {"run_id": run_id}
+            )
+
+        state: RunState | None = None
+        if self._store is not None:
+            state = self._store.get_run_state(run_id)
+        if state is None:
+            raise JsonRpcError(
+                STEP_FAILED,
+                f"没有可恢复的运行状态: {run_id}",
+                {"run_id": run_id},
+            )
+
+        if job is None:
+            run = self._store.get_run(run_id) if self._store is not None else None
+            if run is None:
+                raise JsonRpcError(
+                    INVALID_PARAMS, f"未知 job_id: {run_id}", {"run_id": run_id}
+                )
+            project = (
+                self._store.get_project(run.project_id)
+                if self._store is not None and run.project_id
+                else None
+            )
+            job = Job(
+                run=run,
+                emitter=EventEmitter(
+                    self._send_event,
+                    run_id=run.id,
+                    project_id=run.project_id,
+                    seq=state.seq,
+                ),
+                options=state.options,
+                inputs=list(state.inputs),
+                continue_on_error=state.continue_on_error,
+                max_retries=state.max_retries,
+                use_cache=state.use_cache,
+                workspace=Path(state.workspace) if state.workspace else None,
+                project=project,
+                recipe=state.recipe,
+            )
+            self._jobs[run_id] = job
+        else:
+            job.emitter = EventEmitter(
+                self._send_event,
+                run_id=job.run.id,
+                project_id=job.run.project_id,
+                seq=state.seq,
+            )
+            job.options = state.options
+            job.inputs = list(state.inputs)
+            job.continue_on_error = state.continue_on_error
+            job.max_retries = state.max_retries
+            job.use_cache = state.use_cache
+
+        job.token = CancellationToken()
+        job.finished_emitted = False
+        job.outputs = _restore_outputs(state.step_outputs)
+        job.run.status = "queued"
+        job.run.error = None
+        if job.run.project_id is not None:
+            self._active_projects.add(job.run.project_id)
+        job.task = asyncio.create_task(
+            self._execute(job, state.recipe, list(state.inputs), resumed=True),
+            name=f"run:{run_id}:resume",
+        )
+        job.task.add_done_callback(lambda _task: self._on_job_done(job))
+        return job.run
+
     def cancel(self, run_id: str) -> None:
         job = self._require(run_id)
         job.token.cancel()
+        if job.run.status == "waiting_review":
+            job.run.status = "cancelled"
+            job.run.finished_at = utc_now()
+            self._emit_finished(job, "cancelled")
+            self._persist(job)
+            self._clear_resume_state(run_id)
+            return
         if job.task is not None and not job.task.done():
             job.task.cancel()
 
@@ -284,6 +413,37 @@ class JobManager:
             logger.exception("持久化 run 失败: %s", job.run.id)
             raise
 
+    def _save_resume_state(
+        self,
+        job: Job,
+        recipe: Recipe,
+        outputs_by_step: dict[str, dict[str, Artifact]],
+    ) -> None:
+        if self._store is None:
+            return
+        state = RunState(
+            run_id=job.run.id,
+            recipe=recipe,
+            options=dict(job.options),
+            inputs=list(job.inputs),
+            step_outputs=_serialize_outputs(outputs_by_step),
+            project_id=job.run.project_id,
+            workspace=str(job.workspace or self._workspace),
+            continue_on_error=job.continue_on_error,
+            max_retries=job.max_retries,
+            use_cache=job.use_cache,
+            seq=job.emitter.seq,
+        )
+        self._store.save_run_state(state)
+
+    def _clear_resume_state(self, run_id: str) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.delete_run_state(run_id)
+        except Exception:  # noqa: BLE001 - 清理失败不能掩盖主流程结果
+            logger.exception("删除续跑状态失败: %s", run_id)
+
     def _emit_finished(self, job: Job, status: str, **fields: Any) -> None:
         if job.finished_emitted:
             return
@@ -295,14 +455,19 @@ class JobManager:
             **fields,
         )
 
-    async def _execute(self, job: Job, recipe: Recipe, inputs: list[str]) -> None:
+    async def _execute(
+        self, job: Job, recipe: Recipe, inputs: list[str], *, resumed: bool = False
+    ) -> None:
         try:
             async with self._semaphore:
                 if job.token.cancelled:
                     raise asyncio.CancelledError
                 job.run.status = "running"
-                job.run.started_at = utc_now()
-                job.emitter.emit("run.started", recipe_id=recipe.id)
+                if not resumed:
+                    job.run.started_at = utc_now()
+                    job.emitter.emit("run.started", recipe_id=recipe.id)
+                else:
+                    job.emitter.emit("run.started", recipe_id=recipe.id, resumed=True)
                 self._persist(job)
                 await self._run_recipe(job, recipe, inputs)
         except asyncio.CancelledError:
@@ -316,6 +481,7 @@ class JobManager:
                 job.run.finished_at = utc_now()
             if job.run.status == "cancelled":
                 self._emit_finished(job, "cancelled")
+            self._clear_resume_state(job.run.id)
             self._persist(job)
             raise
         except Exception as exc:  # noqa: BLE001 - 运行器兜底，避免 run 永远停在 running
@@ -330,6 +496,7 @@ class JobManager:
             job.run.error = str(exc)
             job.run.finished_at = utc_now()
             self._emit_finished(job, "failed", error=str(exc))
+            self._clear_resume_state(job.run.id)
             self._persist(job)
         finally:
             self._processes.kill_all()
@@ -337,14 +504,15 @@ class JobManager:
     async def _run_recipe(self, job: Job, recipe: Recipe, inputs: list[str]) -> None:
         order = topological_order(recipe)
         state_by_id = {state.id: state for state in job.run.steps}
-        outputs_by_step: dict[str, dict[str, Artifact]] = {}
+        outputs_by_step: dict[str, dict[str, Artifact]] = dict(job.outputs)
         failed_steps: list[str] = []
 
         for node in order:
             state = state_by_id[node.id]
             if job.token.cancelled:
                 raise asyncio.CancelledError
-            if state.status == "skipped":
+            if state.status in ("skipped", "done"):
+                # 断点续跑：已完成步骤直接复用持久化产物，不重复执行。
                 continue
 
             try:
@@ -382,7 +550,9 @@ class JobManager:
                 break
 
             state.status = "running"
+            state.error = None
             state.started_at = utc_now()
+            state.finished_at = None
             job.emitter.emit("step.started", step=node.id)
             self._persist(job)
 
@@ -412,6 +582,23 @@ class JobManager:
                 )
             except asyncio.CancelledError:
                 raise
+            except ReviewPending as pending:
+                state.status = "waiting_review"
+                state.progress = 0.0
+                state.finished_at = utc_now()
+                job.run.status = "waiting_review"
+                job.run.error = None
+                job.emitter.emit(
+                    "review.requested",
+                    step=node.id,
+                    review_id=pending.review_id,
+                    items=[
+                        item.model_dump(mode="json") for item in pending.items
+                    ],
+                )
+                self._save_resume_state(job, recipe, outputs_by_step)
+                self._persist(job)
+                return
             except JsonRpcError as exc:
                 self._mark_failed(job, state, exc)
                 failed_steps.append(node.id)
@@ -453,6 +640,7 @@ class JobManager:
             job.run.status = "done"
             job.run.finished_at = utc_now()
             self._emit_finished(job, "done")
+        self._clear_resume_state(job.run.id)
         self._persist(job)
 
     # ---- 内部：单步 -----------------------------------------------------
@@ -557,7 +745,12 @@ class JobManager:
             ),
             progress=progress,
             is_cancelled=lambda: job.token.cancelled,
-            services=Services(store=self._store, cache=self._cache, processes=self._processes),
+            services=Services(
+                store=self._store,
+                cache=self._cache,
+                reviews=self._reviews,
+                processes=self._processes,
+            ),
             project=job.project,
             inputs=inputs,
             run_inputs=tuple(job.inputs),

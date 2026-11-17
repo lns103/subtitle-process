@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import { Check, Clipboard, FileCheck2, FolderOpen } from "lucide-react";
+import { Check, Clipboard, FileCheck2, FolderOpen, ShieldCheck } from "lucide-react";
 import { revealPath } from "../../lib/api";
 import type { Project } from "../../lib/models";
+import { navigate } from "../../lib/router";
 
 interface HandoffCardProps {
   project: Project;
@@ -48,6 +49,13 @@ export function HandoffCard({ project }: HandoffCardProps) {
   }, [latest]);
 
   const isWaiting = project.status === "waiting_translation";
+  const reviewRunId = useMemo(() => {
+    if (project.status !== "waiting_review") return null;
+    const pending = [...project.runs]
+      .reverse()
+      .find((run) => run.status === "waiting_review");
+    return pending?.id ?? project.runs[project.runs.length - 1]?.id ?? null;
+  }, [project.runs, project.status]);
 
   return (
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
@@ -96,6 +104,15 @@ export function HandoffCard({ project }: HandoffCardProps) {
           >
             {copied ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
             {copied ? "已复制" : "复制路径"}
+          </button>
+        )}
+        {reviewRunId && (
+          <button
+            type="button"
+            onClick={() => navigate({ name: "review", runId: reviewRunId })}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          >
+            <ShieldCheck className="h-4 w-4" /> 继续审核
           </button>
         )}
       </div>

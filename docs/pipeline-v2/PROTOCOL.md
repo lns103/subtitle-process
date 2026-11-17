@@ -90,7 +90,7 @@ subtitle-engine.exe --rpc stdio
 - 引擎**始终**返回自身 `protocol`，即使客户端版本不同。
 - 前端必须比较 `result.protocol` 与自身支持的版本；不一致时阻止运行并提示升级。
 - Rust supervisor 在 spawn 后 10s 内未完成握手即判定启动失败。
-- `capabilities` 当前为 `["pipeline", "recipes", "project"]`；M5/M6 增加 `review` / `agent`。
+- `capabilities` 当前为 `["pipeline", "recipes", "project", "review"]`；M6 增加 `agent`。
 
 ## 4. 方法表
 
@@ -113,8 +113,9 @@ subtitle-engine.exe --rpc stdio
 | `project.list` | `{}` | `ProjectSummary[]` | M3 | 项目库 |
 | `project.get` | `id` | `Project` | M3 | 详情 |
 | `project.delete` | `id` | `"ok"` | M3 | 删除工作区与 run 记录 |
-| `review.list` | `run_id` | `ReviewItem[]` | M5 | 待审项 |
-| `review.submit` | `run_id, decisions` | `"ok"` | M5 | 提交审核结果 |
+| `review.list` | `run_id` | `ReviewItem[]` | M5 | 待审项（扁平数组，含 `review_id` / `review_status`） |
+| `review.submit` | `run_id, decisions` | `"ok"` | M5 | 提交审核结果并恢复 run |
+| `review.undo` | `run_id` | `{review_id, audit_path, restored[]}` | M5 | 按审计 JSONL 生成撤销副本（扩展方法） |
 | `artifact.reveal` | `path` | `"ok"` | M3 | 资源管理器定位文件/目录 |
 | `settings.get` | `{}` | `Settings` | M6 | 读取设置 |
 | `settings.set` | `settings` | `Settings` | M6 | 保存设置 |
@@ -284,7 +285,7 @@ M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标
 ```
 
 - `options_schema` 由 Pydantic `model_json_schema()` 生成，前端**禁止**硬编码参数表单。
-- 端口 `kind` 取值：`srt` / `ass` / `vtt` / `media_info` / `subtitle_doc` / `review` / `any`。
+- 端口 `kind` 取值：`srt` / `ass` / `vtt` / `media_info` / `subtitle_doc` / `sdh_candidates` / `review_audit` / `review` / `any`。
 - 连线规则：`kind` 相同或任一端为 `any`。
 
 ### 6.2 `Recipe`（M0 子集）
@@ -342,8 +343,8 @@ M1 执行约定：
 | `step.artifact` | `step, key, path, kind` | 产物落盘（M1 起） |
 | `step.failed` | `step, error{code,message,data?}` | 步骤失败 |
 | `run.finished` | `status, duration_ms` | run 结束，`status = done / failed / cancelled` |
-| `review.requested` | `run_id, review_id, items` | 等待人工审核（M5） |
-| `review.resolved` | `review_id` | 审核提交完成（M5） |
+| `review.requested` | `run_id, step, review_id, items` | 等待人工审核（M5）；run 状态转 `waiting_review` |
+| `review.resolved` | `run_id, step, review_id` | 审核提交完成（M5）；随后 run 恢复执行 |
 | `project.updated` | `project` | 项目状态变化（M3） |
 
 约定：
@@ -363,11 +364,24 @@ M1 执行约定：
 4. UI 调 `review.submit`，引擎恢复 run。
 5. 应用重启后 `project.list` 仍能看到 `waiting_review`。
 
+断点续跑（M5 实现）：
+
+- 暂停时 run、已完成步骤产物、配方、运行选项写入 SQLite（`run_state` 表）；
+  引擎重启后 `job.status` / `review.list` 仍可查询。
+- `review.submit` 后 `human.review` 重新执行一次：读取决策、应用文本修改、
+  写审计 JSONL，再继续下游步骤。上游已完成步骤不会重算。
+- 未在 `decisions` 中出现的审核项默认**拒绝**（保持原文），避免静默删除。
+- `review.undo` 按 `reviews/audit-<run_id>.jsonl` 中的 `before` 生成撤销副本，
+  返回新产物路径；原内容寻址产物不被修改。
+
 审核项：
 
 ```json
 {
-  "id":"rev_0012",
+  "id":"rev_ab12cd34_0000",
+  "review_id":"rv_ab12cd34ef",
+  "review_status":"pending",
+  "status":"pending",
   "segment_index":12,
   "start_ms":5400,
   "end_ms":7100,
@@ -375,10 +389,22 @@ M1 执行约定：
   "after":"",
   "action":"remove",
   "confidence":0.93,
-  "reason":"bracketed sound effect",
-  "source":"agent"
+  "reason":"bracketed",
+  "reasons":["bracketed"],
+  "source":"rules",
+  "file":"EP01",
+  "artifact_hash":"sha256..."
 }
 ```
+
+决策：
+
+```json
+{"id":"rev_ab12cd34_0000","action":"accept","after":null}
+```
+
+- `action` 只能是 `accept` / `reject`；`after` 非空时表示人工改写后的文本。
+- 接受 `remove` 时把该段文本置空但保留时间轴；时间轴永不被审核修改。
 
 ## 9. 版本与兼容
 

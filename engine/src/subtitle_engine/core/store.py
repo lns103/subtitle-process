@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -18,11 +19,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Artifact, Project, ProjectSummary, Run
+from .models import Artifact, Project, ProjectSummary, Review, Run, RunState
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _CHUNK_SIZE = 1024 * 1024
 _MAX_KEY_LENGTH = 120
 _DEFAULT_SUFFIX = {
@@ -96,10 +97,26 @@ CREATE INDEX IF NOT EXISTS idx_runs_project_started
   ON runs(project_id, started_at);
 """
 
+#: v2：HITL 断点续跑状态 + 审核记录完整 payload。
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS run_state (
+  run_id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+ALTER TABLE reviews ADD COLUMN payload TEXT;
+"""
+
 
 def _utc_iso() -> str:
     """当前 UTC 时间的 ISO 8601 文本。"""
     return datetime.now(UTC).isoformat()
+
+
+def json_dumps(value: Any) -> str:
+    """紧凑 JSON，保留中文，供 SQLite 文本列使用。"""
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _clean_key(key: str) -> str:
@@ -195,11 +212,25 @@ class Store:
             self._migrate_v1(conn)
             conn.execute("PRAGMA user_version = 1")
             conn.commit()
+        if version < 2:
+            self._migrate_v2(conn)
+            conn.execute("PRAGMA user_version = 2")
+            conn.commit()
 
     @staticmethod
     def _migrate_v1(conn: sqlite3.Connection) -> None:
         """v0 → v1：建全部表。"""
         conn.executescript(_SCHEMA_V1)
+
+    @staticmethod
+    def _migrate_v2(conn: sqlite3.Connection) -> None:
+        """v1 → v2：审核 payload 与 ``run_state``。"""
+        try:
+            conn.executescript(_SCHEMA_V2)
+        except sqlite3.OperationalError as exc:
+            # ALTER TABLE 在列已存在时失败；只吞这一种已知情况，其它错误必须暴露。
+            if "duplicate column name" not in str(exc).lower():
+                raise
 
     # ------------------------------------------------------------------
     # 产物
@@ -422,6 +453,16 @@ class Store:
                 ).fetchone()
                 if row is None:
                     return False
+                conn.execute(
+                    "DELETE FROM reviews WHERE run_id IN "
+                    "(SELECT id FROM runs WHERE project_id = ?)",
+                    (project_id,),
+                )
+                conn.execute(
+                    "DELETE FROM run_state WHERE run_id IN "
+                    "(SELECT id FROM runs WHERE project_id = ?)",
+                    (project_id,),
+                )
                 conn.execute("DELETE FROM runs WHERE project_id = ?", (project_id,))
                 conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
                 conn.commit()
@@ -511,6 +552,133 @@ class Store:
                     (project_id, limit),
                 ).fetchall()
             return [Run.model_validate_json(row["payload"]) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Review（M5 HITL）
+    # ------------------------------------------------------------------
+
+    def save_review(self, review: Review) -> None:
+        """UPSERT 审核记录；``payload`` 为完整 Review JSON。"""
+        with self._lock:
+            conn = self._require_conn()
+            decisions = (
+                json_dumps([item.model_dump(mode="json") for item in review.decisions])
+                if review.decisions
+                else None
+            )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO reviews(
+                      id, run_id, step_id, status, items, decisions,
+                      created_at, updated_at, payload
+                    )
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      run_id = excluded.run_id,
+                      step_id = excluded.step_id,
+                      status = excluded.status,
+                      items = excluded.items,
+                      decisions = excluded.decisions,
+                      updated_at = excluded.updated_at,
+                      payload = excluded.payload
+                    """,
+                    (
+                        review.id,
+                        review.run_id,
+                        review.step_id,
+                        review.status,
+                        json_dumps(
+                            [item.model_dump(mode="json") for item in review.items]
+                        ),
+                        decisions,
+                        review.created_at.isoformat(),
+                        review.updated_at.isoformat(),
+                        review.model_dump_json(),
+                    ),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"保存审核记录失败: {review.id}") from exc
+
+    def get_review(self, review_id: str) -> Review | None:
+        """按 id 读取审核记录；不存在返回 ``None``。"""
+        with self._lock:
+            conn = self._require_conn()
+            row = conn.execute(
+                "SELECT payload FROM reviews WHERE id = ?", (review_id,)
+            ).fetchone()
+            if row is None or row["payload"] is None:
+                return None
+            return Review.model_validate_json(row["payload"])
+
+    def list_reviews(self, run_id: str) -> list[Review]:
+        """按创建时间正序列出某次 run 的审核记录。"""
+        with self._lock:
+            conn = self._require_conn()
+            rows = conn.execute(
+                """
+                SELECT payload FROM reviews
+                WHERE run_id = ? AND payload IS NOT NULL
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (run_id,),
+            ).fetchall()
+            return [Review.model_validate_json(row["payload"]) for row in rows]
+
+    def delete_reviews(self, run_id: str) -> None:
+        """删除某次 run 的审核记录（项目删除时调用）。"""
+        with self._lock:
+            conn = self._require_conn()
+            try:
+                conn.execute("DELETE FROM reviews WHERE run_id = ?", (run_id,))
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"删除审核记录失败: {run_id}") from exc
+
+    # ------------------------------------------------------------------
+    # Run resume state（M5 HITL 断点续跑）
+    # ------------------------------------------------------------------
+
+    def save_run_state(self, state: RunState) -> None:
+        """UPSERT 断点续跑状态。"""
+        with self._lock:
+            conn = self._require_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO run_state(run_id, payload, updated_at)
+                    VALUES(?, ?, ?)
+                    ON CONFLICT(run_id) DO UPDATE SET
+                      payload = excluded.payload,
+                      updated_at = excluded.updated_at
+                    """,
+                    (state.run_id, state.model_dump_json(), _utc_iso()),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"保存续跑状态失败: {state.run_id}") from exc
+
+    def get_run_state(self, run_id: str) -> RunState | None:
+        """读取断点续跑状态；不存在返回 ``None``。"""
+        with self._lock:
+            conn = self._require_conn()
+            row = conn.execute(
+                "SELECT payload FROM run_state WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return RunState.model_validate_json(row["payload"])
+
+    def delete_run_state(self, run_id: str) -> None:
+        """删除断点续跑状态；不存在时不报错。"""
+        with self._lock:
+            conn = self._require_conn()
+            try:
+                conn.execute("DELETE FROM run_state WHERE run_id = ?", (run_id,))
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"删除续跑状态失败: {run_id}") from exc
 
     # ------------------------------------------------------------------
     # Settings

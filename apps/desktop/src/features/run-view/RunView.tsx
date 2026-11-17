@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Loader2, Play, RotateCcw } from "lucide-react";
+import { ArrowRight, ClipboardCheck, Loader2, Play, RotateCcw } from "lucide-react";
 import { createProject, runRecipe, validateRecipe } from "../../lib/api";
 import { isSubtitlePath, isVideoPath } from "../../lib/models";
+import { navigate } from "../../lib/router";
 import { HandoffCard } from "../projects/HandoffCard";
 import { ProjectList } from "../projects/ProjectList";
 import { useProjectStore } from "../../stores/projectStore";
@@ -86,13 +87,34 @@ export function RunView({ paths, engineReady }: RunViewProps) {
             <button
               type="button"
               onClick={() => void start()}
-              disabled={!engineReady || running}
+              disabled={!engineReady || running || status === "waiting_review"}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {running ? "运行中…" : "开始处理视频"}
             </button>
           </div>
+
+          {status === "waiting_review" && runId && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+              <div className="flex items-start gap-2">
+                <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                <div>
+                  <p className="text-sm font-medium text-amber-900">有字幕项等待人工审核</p>
+                  <p className="text-xs text-amber-800">
+                    运行已暂停（waiting_review），审核提交后会自动继续。
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate({ name: "review", runId })}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500"
+              >
+                前往审核 <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
           {paths.length > 0 && (
             <ul className="mt-4 space-y-1 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">

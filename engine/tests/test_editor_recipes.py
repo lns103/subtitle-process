@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_flow1 import _make_video
 
 from subtitle_engine.rpc.errors import RECIPE_INVALID, JsonRpcError
 from subtitle_engine.rpc.server import RpcServer
-
-from test_flow1 import _make_video
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -36,7 +35,14 @@ EDITOR_RECIPE: dict[str, Any] = {
         }
     ],
     "steps": [
-        {"id": "probe", "uses": "media.probe", "needs": [], "when": None, "with": {}, "ui": {"x": 10, "y": 20}},
+        {
+            "id": "probe",
+            "uses": "media.probe",
+            "needs": [],
+            "when": None,
+            "with": {},
+            "ui": {"x": 10, "y": 20},
+        },
         {
             "id": "extract",
             "uses": "media.extract_subtitles",
@@ -83,7 +89,12 @@ async def test_editor_recipe_save_validate_and_run(tmp_path: Path) -> None:
         assert saved["steps"][0]["with"] == {}
 
         loaded = await server.dispatch(_request("recipes.get", {"id": EDITOR_RECIPE["id"]}))
-        assert [step["id"] for step in loaded["steps"]] == ["probe", "extract", "normalize", "export"]
+        assert [step["id"] for step in loaded["steps"]] == [
+            "probe",
+            "extract",
+            "normalize",
+            "export",
+        ]
 
         report = await server.dispatch(
             _request("pipeline.validate", {"recipe": EDITOR_RECIPE})

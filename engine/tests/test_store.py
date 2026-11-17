@@ -12,7 +12,15 @@ import pytest
 from subtitle_engine.core.models import Artifact, Run, StepState
 from subtitle_engine.core.store import Store
 
-EXPECTED_TABLES = {"projects", "runs", "artifacts", "reviews", "settings", "step_cache"}
+EXPECTED_TABLES = {
+    "projects",
+    "runs",
+    "artifacts",
+    "reviews",
+    "settings",
+    "step_cache",
+    "run_state",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -45,13 +53,13 @@ def test_init_is_idempotent_and_creates_schema(tmp_path: Path) -> None:
     assert store.artifacts_dir.is_dir()
 
     with sqlite3.connect(store.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
     assert EXPECTED_TABLES <= _tables(store.db_path)
     store.close()
 
     again = Store(tmp_path)
     with sqlite3.connect(again.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
     assert EXPECTED_TABLES <= _tables(again.db_path)
     again.close()
 

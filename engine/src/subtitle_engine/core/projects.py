@@ -160,6 +160,29 @@ class ProjectManager:
         self._store.save_project(project)
         return project
 
+    def mark_review(self, run: Run) -> Project | None:
+        """HITL 暂停：项目状态置为 ``waiting_review``。"""
+        if not run.project_id:
+            return None
+        project = self._store.get_project(run.project_id)
+        if project is None:
+            logger.warning("run %s 关联的项目已不存在: %s", run.id, run.project_id)
+            return None
+        project.status = "waiting_review"
+        project.updated_at = datetime.now(UTC)
+        project.runs = [
+            item for item in project.runs if item.id != run.id
+        ] + [
+            RunRef(
+                id=run.id,
+                recipe_id=run.recipe_id,
+                status=run.status,
+                started_at=run.started_at,
+            )
+        ]
+        self._store.save_project(project)
+        return project
+
     def record_run(self, run: Run, outputs: list[ProjectOutput]) -> Project | None:
         """运行结束后更新项目状态与产物；无关联项目时返回 ``None``。"""
         if not run.project_id:
@@ -197,7 +220,11 @@ class ProjectManager:
         if run.status == "failed":
             return "failed"
         if run.status == "cancelled":
-            return project.status if project.status != "running" else "draft"
+            return (
+                "draft"
+                if project.status in ("running", "waiting_review")
+                else project.status
+            )
         if run.status != "done":
             return project.status
         if run.recipe_id == "video_to_clean_srt":

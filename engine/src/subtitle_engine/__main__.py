@@ -147,6 +147,7 @@ async def _run_command(args: argparse.Namespace) -> int:
     from .core.paths import resolve_data_dir
     from .core.pipeline import JobManager
     from .core.recipes import load_recipe_file
+    from .core.reviews import ReviewStore
     from .core.store import Store
     from .version import __version__ as engine_version
 
@@ -163,12 +164,15 @@ async def _run_command(args: argparse.Namespace) -> int:
 
     store = Store(data_dir)
     cache = StepCache(store, engine_version=engine_version)
+    reviews = ReviewStore(store)
 
     def sink(event: Any) -> None:
         sys.stderr.write(_format_event(event) + "\n")
         sys.stderr.flush()
 
-    jobs = JobManager(sink, store=store, cache=cache, workspace=workspace)
+    jobs = JobManager(
+        sink, store=store, cache=cache, reviews=reviews, workspace=workspace
+    )
     try:
         run = jobs.start(
             recipe,

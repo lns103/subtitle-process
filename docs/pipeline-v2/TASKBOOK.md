@@ -1274,15 +1274,21 @@ mkvmerge --version
 覆盖 JSON Schema 表单。前端 39 个 Vitest 全部通过，`tsc && vite build` 通过；
 `engine/tests/test_editor_recipes.py` 用真实 MKV 跑通编辑器产出的配方并可保存/重载。）
 
-### M5 SDH 规则与审核（5 天）
+### M5 SDH 规则与审核（5 天）✅
 
-- [ ] `sub.sdh_scan` 规则 + reason code。
-- [ ] `human.review` 步骤与 SQLite 持久化。
-- [ ] 审核 UI + Monaco diff。
-- [ ] 审计 JSONL。
-- [ ] 重启后审核状态可恢复。
+- [x] `sub.sdh_scan` 规则 + reason code。
+- [x] `human.review` 步骤与 SQLite 持久化。
+- [x] 审核 UI + Monaco diff。
+- [x] 审计 JSONL。
+- [x] 重启后审核状态可恢复。
 
 验收：规则标记 20 条，审核接受/拒绝后产物正确变化，审计可撤销。
+（`engine/tests/test_reviews.py` 覆盖 7 条规则、`waiting_review` 暂停/恢复、接受/拒绝/改写、
+审计 JSONL 与 `review.undo`；`test_review_survives_restart` 用同一 data-dir 重建
+`RpcServer` 后提交审核并完成导出。前端 `reviewStore.test.ts` / `ReviewPage.test.tsx` /
+`router.test.ts` / `runStore.test.ts` 覆盖审核页交互与事件。实现说明：暂停断点存
+`run_state`（SQLite v2），未提交的审核项默认拒绝，接受 `remove` 时仅清空文本、
+不改时间轴；`review.undo` 生成撤销副本。）
 
 ### M6 Agent（5 天）
 

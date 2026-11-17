@@ -142,6 +142,48 @@ export interface ValidationResult {
   order: string[];
 }
 
+// ---- M5 人工审核（HITL）---------------------------------------------
+
+export type ReviewRecordStatus = "pending" | "submitted";
+export type ReviewItemStatus = "pending" | "accepted" | "rejected";
+export type ReviewItemAction = "keep" | "remove" | "rewrite";
+export type ReviewItemSource = "rules" | "agent" | "human";
+export type ReviewDecisionAction = "accept" | "reject";
+
+/** ``review.list`` 返回的扁平审核项。 */
+export interface ReviewItem {
+  id: string;
+  review_id: string;
+  review_status: ReviewRecordStatus;
+  status: ReviewItemStatus;
+  segment_index: number;
+  start_ms: number;
+  end_ms: number;
+  before: string;
+  after: string;
+  action: ReviewItemAction;
+  confidence: number;
+  reason: string;
+  reasons: string[];
+  source: ReviewItemSource;
+  file: string;
+  artifact_hash: string;
+}
+
+/** ``review.submit`` 的单项决策；改写时附带 ``after``。 */
+export interface ReviewDecision {
+  id: string;
+  action: ReviewDecisionAction;
+  after?: string | null;
+}
+
+/** ``review.undo`` 返回的恢复结果。 */
+export interface ReviewUndoResult {
+  review_id: string;
+  audit_path: string;
+  restored: Array<{ path: string; hash: string }>;
+}
+
 export const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".mov", ".avi", ".ts"];
 export const SUBTITLE_EXTENSIONS = [".srt", ".ass", ".vtt"];
 

@@ -12,11 +12,13 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@xyflow/react": "^12.12.1",
     "dagre": "^0.8.5",
     "lucide-react": "^1.74.0",
+    "monaco-editor": "^0.57.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zundo": "^2.3.0",

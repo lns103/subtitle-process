@@ -1,7 +1,7 @@
 id: video_to_clean_srt
 name: 视频 → 规范字幕
 version: 1
-description: 提取内嵌字幕 → 清理 → 校验 → 导出干净 SRT。SDH 扫描/Agent 将在 M5/M6 接入。
+description: 提取内嵌字幕 → 清理 → SDH 扫描/人工审核 → 校验 → 导出干净 SRT。
 builtin: true
 inputs:
   - name: video
@@ -27,9 +27,19 @@ steps:
       clean_person: true
       clean_uppercase: false
       zh_punctuation: false
+  - id: sdh_scan
+    uses: sub.sdh_scan
+    needs: [normalize]
+    with:
+      rules: [bracketed, parenthetical, music, speaker, uppercase, arrow, ellipsis_action]
+      uppercase_min_length: 4
+  - id: sdh_review
+    uses: human.review
+    needs: [sdh_scan]
+    with: {}
   - id: validate
     uses: sub.validate
-    needs: [normalize]
+    needs: [sdh_review]
     with:
       fail_on_error: false
   - id: export

@@ -4,6 +4,16 @@
 
 ## Unreleased — Pipeline v2
 
+### M5 SDH 规则与人工审核
+
+#### 新增
+- **SDH 规则扫描**：`domain/sdh.py` 提供 `bracketed` / `parenthetical` / `music` / `speaker` / `uppercase` / `arrow` / `ellipsis_action` 七类 reason code，只标记不修改；`sub.sdh_scan` 输出 `candidates` 端口（JSON）并透传原字幕，`video_to_clean_srt` 在 `sub.normalize` 后接入扫描与审核。
+- **HITL 审核**：`human.review` 步骤把候选转为待审项并抛出暂停信号，Runner 将 run/项目状态置为 `waiting_review`，发出 `review.requested`；`review.list` / `review.submit` / `review.undo` 完成拉取、提交与撤销。决策支持接受/拒绝/人工改写，未决策项默认拒绝，接受删除时仅清空文本、绝不改时间轴。
+- **断点续跑**：SQLite 迁移至 v2，新增 `run_state` 保存配方、选项、已完成步骤产物与事件序号；应用重启后 `job.status`、`review.list` 仍可查询，提交后从暂停步骤继续执行且不重算上游。
+- **审计**：审核结果写 `<workspace>/reviews/audit-<run_id>.jsonl`（header + 逐条 before/after/action/confidence/reason），`review.undo` 依据审计生成撤销副本。
+- **审核 UI**：新增 `#/review/<runId>` 页面，按置信度排序待审项，Monaco DiffEditor 对比 before/after，支持人工改写、单条接受/拒绝、批量接受高置信度、全部拒绝、提交与撤销，快捷键 `J/K/A/R`；运行页 `waiting_review` 时提供「前往审核」入口。
+- **测试**：引擎新增 M5 审核测试（规则 reason、20 条候选标记、暂停/提交/应用、审计撤销、引擎重启续跑、无候选直通），引擎测试增至 **177 个**；前端新增 reviewStore / ReviewPage / router / runStore 用例（含事件早于 `pipeline.run` 响应到达的乱序保护），全部 62 个前端测试通过，`tsc && vite build` 通过。
+
 ### M4 自由连线编辑器
 
 #### 新增

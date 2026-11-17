@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
-import { Check, Clipboard, FileCheck2, FolderOpen, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Clipboard, FileCheck2, FolderOpen, Languages, ShieldCheck } from "lucide-react";
 import { revealPath } from "../../lib/api";
 import type { Project } from "../../lib/models";
 import { navigate } from "../../lib/router";
+import { useProjectStore } from "../../stores/projectStore";
 
 interface HandoffCardProps {
   project: Project;
@@ -66,7 +67,7 @@ export function HandoffCard({ project }: HandoffCardProps) {
           </h3>
           <p className="mt-1 text-sm text-emerald-800">
             {isWaiting
-              ? "干净字幕已导出。请用 LinguaGacha 翻译后，把译文 SRT 拖回应用。"
+              ? "干净字幕已导出。请用 LinguaGacha 翻译后，把译文 SRT 拖回首页即可继续合并双语 ASS。"
               : `项目状态：${STATUS_TEXT[project.status]}`}
           </p>
         </div>
@@ -115,7 +116,27 @@ export function HandoffCard({ project }: HandoffCardProps) {
             <ShieldCheck className="h-4 w-4" /> 继续审核
           </button>
         )}
+        {isWaiting && (
+          <button
+            type="button"
+            data-testid="continue-translation"
+            onClick={() => {
+              useProjectStore.getState().preferProject(project.id);
+              navigate({ name: "home" });
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          >
+            <Languages className="h-4 w-4" /> 继续合并译文
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        )}
       </div>
+
+      {isWaiting && (
+        <p className="mt-3 text-xs text-emerald-700">
+          提示：回到首页后把翻译好的字幕（.srt / .ass / .vtt）拖入窗口，系统会预选该项目。
+        </p>
+      )}
 
       {error && (
         <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>

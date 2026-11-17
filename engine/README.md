@@ -60,7 +60,9 @@ Manager）。headless/CI 可用 `SUBTITLE_ENGINE_AGENT_API_KEY` 环境变量临�
   - `sub.normalize` / `sub.validate` / `sub.export`：清理、校验与导出
   - `sub.sdh_scan` / `human.review`：SDH 规则标记、HITL 审核与审计（M5）
   - `agent.sdh_review`：只处理 SDH 候选的 Agent 结构化决策（M6）
-- `domain/`：纯算法层（SRT 解析、清理、SDH 规则、媒体解析、路径、校验），可在无 GUI/子进程环境单测
+  - `sub.match_project` / `sub.merge_bilingual`：译文与原项目匹配、双语 ASS 合并（M7）
+  - `sub.fps_convert` / `sub.shift_time` / `sub.rename` / `sub.outline_scale`：时间轴与文件整理（M7）
+- `domain/`：纯算法层（SRT 解析、清理、SDH 规则、媒体解析、路径、校验、双语合并、时间轴、重命名、描边缩放），可在无 GUI/子进程环境单测
 - `adapters/`：ffmpeg / ffprobe / mkvmerge 子进程封装，缺失依赖抛 `1006`
 - `rpc/`：JSONL 分帧、JSON-RPC 服务端、错误码
 - `agents/`：OpenAI 兼容客户端、SDH 提示词/结构化决策、设置与钥匙串门面（M6）

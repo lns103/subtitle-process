@@ -7,10 +7,13 @@ interface ProjectState {
   active: Project | null;
   loading: boolean;
   lastError: string | null;
+  /** HandoffCard 引导回首页后，流程 2 预选的项目。 */
+  preferredProjectId: string | null;
   refresh: () => Promise<void>;
   select: (id: string) => Promise<void>;
   applyUpdate: (project: Project) => void;
   clearActive: () => void;
+  preferProject: (id: string | null) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -18,6 +21,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   active: null,
   loading: false,
   lastError: null,
+  preferredProjectId: null,
 
   refresh: async () => {
     set({ loading: true });
@@ -87,4 +91,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   clearActive: () => set({ active: null }),
+
+  preferProject: (id) => set({ preferredProjectId: id }),
 }));

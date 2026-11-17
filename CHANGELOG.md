@@ -4,6 +4,22 @@
 
 ## Unreleased — Pipeline v2
 
+### M7 合并与发布
+
+#### 新增
+- **领域层移植**：`domain/merge.py` 忠实移植旧 `tools/merge_srt.py`（重复片段极大匹配 + 贪心选择、精确时间戳匹配、5 条模糊匹配规则、连通分量合并、`classify_and_match_files`、ASS 渲染），并提供 `parse_srt_entries` 保持毫秒截断与旧实现逐字节一致；新增 `domain/timing.py`（帧率/时间平移）、`domain/rename.py`（SxxExx 重命名计划，纯函数）、`domain/outline.py`（ASS 描边缩放）。
+- **M7 步骤**：`sub.match_project` 按项目产物/`clean/`/`extracted/` 与同目录原文匹配译文，综合 stem 与时间轴相似度（段落数差异 < 10%、首尾差 < 1s），低置信度时以结构化候选列表报错；`sub.merge_bilingual` 按 `pair_id` 分组生成双语 ASS，保留旧版重复片段字体对齐；新增 `sub.fps_convert` / `sub.shift_time` / `sub.rename`（支持 dry-run）/ `sub.outline_scale`。
+- **流程 2 端到端**：RPC 与 CLI 均可完成「视频 → 干净 SRT → 手动翻译 → 拖回译文 → 双语 ASS」，项目状态从 `waiting_translation` 变为 `done`；CLI 在 `--project-id` 时加载项目并切换到其工作区，使 `sub.match_project` 与 RPC 行为一致。
+- **前端流程 2**：拖入纯字幕时进入「译文 → 双语 ASS」面板，按文件名推荐目标项目（优先 `waiting_translation`），可手动切换；运行前校验配方，完成后展示 `.ass` 产物并支持打开文件夹/复制路径。新增 `lib/flow2.ts` 纯逻辑与 `HandoffCard` 的「继续合并译文」入口，抽取 `RunFeedback` 复用进度/日志。
+- **打包与发布**：新增 `scripts/build-engine.ps1`（Nuitka onefile 优先、失败回退 PyInstaller onedir、按 `rustc` host triple 复制为 `binaries/subtitle-engine-<triple>.exe`）与 `scripts/e2e.ps1`（ffmpeg 生成真实 MKV，跑通两阶段 CLI）。`tauri.conf.json` 增加 `bundle.externalBin`、`createUpdaterArtifacts` 与 `plugins.updater` 占位；Rust 侧注册 `tauri-plugin-single-instance`（最先注册）、`updater`、`store`，新增 `check_for_updates` 命令与 `UPDATER.md` 说明；权限文件补充 `store:default` / `updater:default`。
+- **文档**：根 `README.md` 重写为 pipeline-v2 架构、开发与打包说明；`engine/README.md` 补充 M7 步骤与领域模块。
+
+#### 测试
+- 引擎新增 35 个 M7 用例：合并算法与旧 `tools/merge_srt.py` 逐字节 golden、文件匹配、低置信度候选、流程 2 RPC 端到端与重启；帧率/平移与旧实现 golden；重命名/描边缩放与旧实现 golden。全量 **224 passed, 1 skipped**，`ruff check` 通过。
+- 前端新增流程 2 纯函数与交互用例，**85 个 Vitest** 全部通过，`tsc && vite build` 通过。
+- `scripts/e2e.ps1` 两阶段真实 ffmpeg 冒烟通过。
+- 说明：本机未安装 Rust 工具链，Tauri 打包/单实例/自动更新代码未在本机编译验证；需在具备 `rustc` + `x86_64-pc-windows-msvc` 的环境执行 `npm run tauri build` 复核。
+
 ### M6 SDH Agent
 
 #### 新增

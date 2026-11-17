@@ -1,7 +1,7 @@
 id: translated_to_bilingual
 name: 译文 SRT → 双语 ASS
 version: 1
-description: 匹配原项目 → 校验译文 → 合并双语 ASS → 导出。匹配与合并将在 M7 完成。
+description: 匹配原项目 → 校验译文 → 合并双语 ASS → 导出。
 builtin: true
 inputs:
   - name: translated

@@ -1,7 +1,7 @@
 id: batch_shift_fps
 name: 批量帧率转换
 version: 1
-description: 按帧率比例缩放一批 SRT 的时间轴，输出 <原名>.fps.srt。算法将在 M7 完成。
+description: 按帧率比例缩放一批 SRT 的时间轴，输出 <原名>.fps.srt。
 builtin: true
 inputs:
   - name: files

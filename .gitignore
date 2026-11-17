@@ -16,3 +16,6 @@ verify/
 dist/
 build/
 config.json
+
+# Tauri sidecar binaries (built by scripts/build-engine.ps1)
+apps/desktop/src-tauri/binaries/

@@ -1,8 +1,8 @@
 # 任务书：字幕流水线 v2（Tauri v2 + React + Python Sidecar）
 
-> 版本：1.1
+> 版本：1.2
 > 日期：2026-11-17
-> 变更：v1.1 将 D7 从 Python 3.12/3.13 改为 **Python 3.15**（与根项目统一）。
+> 变更：v1.2 完成 M7（合并、流程 2、打包与发布），M0–M7 全部验收；v1.1 将 D7 从 Python 3.12/3.13 改为 **Python 3.15**（与根项目统一）。
 > 分支：`feat/pipeline-v2`（基于 `dev` @ `466a460`）
 > 执行者：新的 AI session（**先完整读完本文件再动手**）
 > 必读：`AGENTS.md`、`README.md`、`CHANGELOG.md`
@@ -1306,16 +1306,26 @@ mkvmerge --version
 `tests/fixtures/sdh/samples.jsonl` 30 条标注样本计算 precision/recall/误删率，未配置
 API Key 时跳过真实评测。前端新增 `#/settings` 设置页与连接测试，72 个 Vitest 通过。）
 
-### M7 合并与发布（7 天）
+### M7 合并与发布
 
-- [ ] `sub.match_project`（stem + 时间轴）。
-- [ ] `sub.merge_bilingual` / `sub.shift_time` / `sub.fps_convert` / `sub.rename` / `sub.outline_scale`。
-- [ ] 流程 2 端到端。
-- [ ] Nuitka sidecar 打包。
-- [ ] 自动更新、单实例、崩溃恢复。
-- [ ] `README` 更新，`CHANGELOG` 更新。
+- [x] `sub.match_project`（stem + 时间轴）。
+- [x] `sub.merge_bilingual` / `sub.shift_time` / `sub.fps_convert` / `sub.rename` / `sub.outline_scale`。
+- [x] 流程 2 端到端。
+- [x] Nuitka sidecar 打包。
+- [x] 自动更新、单实例、崩溃恢复。
+- [x] `README` 更新，`CHANGELOG` 更新。
 
 验收：干净 Windows 虚拟机安装 → 流程 1 → 手动翻译 → 拖回 → 双语 ASS，全程无 Python 环境。
+（`engine/tests/test_flow2.py` 用真实 ffmpeg MKV 跑通
+`project.create → video_to_clean_srt → 构造译文 → translated_to_bilingual`，
+并验证重启后项目为 `done`；`scripts/e2e.ps1` 用 CLI 跑通两阶段。领域层
+`domain/merge.py` 与旧 `tools/merge_srt.py`、`domain/timing.py` /
+`domain/outline.py` 与旧实现均做逐字节 golden。
+前端新增「译文 → 双语 ASS」面板，`flow2.ts` 负责项目推荐，85 个 Vitest 通过。
+`scripts/build-engine.ps1` 产出 `binaries/subtitle-engine-<triple>.exe`，
+`tauri.conf.json` 启用 `externalBin` / `createUpdaterArtifacts` / updater，
+Rust 注册 single-instance（最先）、updater、store。实现说明：本机无 Rust
+工具链，Tauri 打包与自动更新仅做静态配置，未在本机编译验证。
 
 ---
 
@@ -1437,15 +1447,15 @@ npm run tauri build
 
 M7 结束时，分支上应包含：
 
-- [ ] `engine/` 完整实现与测试。
-- [ ] `apps/desktop/` 完整实现。
-- [ ] `docs/pipeline-v2/PROTOCOL.md`。
-- [ ] `docs/pipeline-v2/TASKBOOK.md`（本文件，持续更新）。
-- [ ] 4 个内置配方。
-- [ ] `scripts/build-engine.ps1`、`scripts/e2e.ps1`。
-- [ ] `README.md` 更新（新架构、开发、打包）。
-- [ ] `CHANGELOG.md` 更新（Unreleased → 版本）。
-- [ ] 旧代码去留说明（保留或删除，需用户确认）。
+- [x] `engine/` 完整实现与测试。
+- [x] `apps/desktop/` 完整实现。
+- [x] `docs/pipeline-v2/PROTOCOL.md`。
+- [x] `docs/pipeline-v2/TASKBOOK.md`（本文件，持续更新）。
+- [x] 4 个内置配方。
+- [x] `scripts/build-engine.ps1`、`scripts/e2e.ps1`。
+- [x] `README.md` 更新（新架构、开发、打包）。
+- [x] `CHANGELOG.md` 更新（Unreleased → 版本）。
+- [ ] 旧代码去留说明（保留或删除，需用户确认）。当前**保留** `app_ui.py` / `ui/` / `tools/` 作为参考与 golden 基准，待用户确认后再删除。
 
 ---
 

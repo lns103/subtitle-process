@@ -16,10 +16,18 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+# 自动更新（tauri.conf.json 的 plugins.updater + bundle.createUpdaterArtifacts）
+tauri-plugin-updater = "2"
+# 前端设置/草稿持久化
+tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros"] }
 log = "0.4"
+
+# single-instance 仅桌面平台可用；放在 target 依赖里避免移动端构建被牵连。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
 
 [profile.release]
 codegen-units = 1

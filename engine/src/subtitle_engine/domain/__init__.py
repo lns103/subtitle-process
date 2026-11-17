@@ -5,6 +5,16 @@
 
 from __future__ import annotations
 
-from . import clean, media, paths, srt, validate
+from . import clean, media, merge, outline, paths, rename, srt, timing, validate
 
-__all__ = ["clean", "media", "paths", "srt", "validate"]
+__all__ = [
+    "clean",
+    "media",
+    "merge",
+    "outline",
+    "paths",
+    "rename",
+    "srt",
+    "timing",
+    "validate",
+]

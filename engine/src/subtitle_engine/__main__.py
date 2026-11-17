@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from .version import __version__
@@ -159,10 +160,20 @@ async def _run_command(args: argparse.Namespace) -> int:
 
     data_dir = resolve_data_dir(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    workspace = data_dir / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
 
     store = Store(data_dir)
+    # 关联项目时加载 Project 并切到其工作区：流程 2 的 sub.match_project 需要
+    # 项目产物；CLI 与 RPC 必须共享同一行为。未登记的项目 id 仅用于并发锁，
+    # 与 RPC 的兼容策略一致（记录警告后继续）。
+    project = store.get_project(args.project_id) if args.project_id else None
+    if args.project_id and project is None:
+        sys.stderr.write(f"警告: 项目未登记，仅用于并发锁: {args.project_id}\n")
+    if project is not None and project.workspace:
+        workspace = Path(project.workspace)
+    else:
+        workspace = data_dir / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
     cache = StepCache(store, engine_version=engine_version)
     reviews = ReviewStore(store)
 
@@ -181,6 +192,8 @@ async def _run_command(args: argparse.Namespace) -> int:
             max_retries=args.max_retries,
             use_cache=not args.no_cache,
             continue_on_error=args.continue_on_error,
+            workspace=workspace,
+            project=project,
         )
         finished = await jobs.wait(run.id)
     finally:

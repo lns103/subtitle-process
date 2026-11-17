@@ -1,0 +1,28 @@
+id: fn_sdh_scan
+name: 扫描 SDH
+version: 1
+description: 按括号/音效/说话人/全大写等规则标记 SDH 候选。
+builtin: true
+inputs:
+  - name: subs
+    label: 字幕文件
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: sdh_scan
+        port: subs
+steps:
+  - id: sdh_scan
+    uses: sub.sdh_scan
+    with:
+      rules: [bracketed, parenthetical, music, speaker, uppercase, arrow, ellipsis_action]
+      uppercase_min_length: 4
+outputs:
+  - from: sdh_scan
+    key: candidates
+ui:
+  kind: function
+  group: 字幕处理
+  order: 33

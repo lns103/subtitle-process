@@ -61,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="输入路径，可重复",
     )
     run_p.add_argument(
+        "--input-name",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="命名输入（绑定到配方 inputs 的 name），可重复，例如 original=a.srt",
+    )
+    run_p.add_argument(
         "--data-dir",
         default=None,
         help="数据目录（默认 %%APPDATA%%/SubtitleProcess）",
@@ -184,10 +191,18 @@ async def _run_command(args: argparse.Namespace) -> int:
     jobs = JobManager(
         sink, store=store, cache=cache, reviews=reviews, workspace=workspace
     )
+    named_inputs: dict[str, list[str]] = {}
+    for entry in args.input_name:
+        name, separator, raw_path = entry.partition("=")
+        if not separator or not name.strip() or not raw_path.strip():
+            sys.stderr.write(f"命名输入格式错误，应为 NAME=PATH: {entry}\n")
+            return 2
+        named_inputs.setdefault(name.strip(), []).append(raw_path.strip())
     try:
         run = jobs.start(
             recipe,
             inputs=list(args.input),
+            inputs_by_name=named_inputs,
             project_id=args.project_id,
             max_retries=args.max_retries,
             use_cache=not args.no_cache,

@@ -16,6 +16,16 @@ BUILTINS = {
     "translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",
+    "fn_extract_subtitles",
+    "fn_normalize",
+    "fn_validate",
+    "fn_sdh_scan",
+    "fn_fps_convert",
+    "fn_shift_time",
+    "fn_outline_scale",
+    "fn_export",
+    "fn_merge_bilingual",
+    "fn_rename",
 }
 
 

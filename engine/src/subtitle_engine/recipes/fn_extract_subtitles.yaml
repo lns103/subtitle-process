@@ -1,0 +1,27 @@
+id: fn_extract_subtitles
+name: 提取字幕
+version: 1
+description: 分析视频并按轨道策略提取内嵌字幕。
+builtin: true
+inputs:
+  - name: video
+    label: 视频文件
+    kind: file
+    accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"]
+    required: true
+steps:
+  - id: probe
+    uses: media.probe
+  - id: extract
+    uses: media.extract_subtitles
+    needs: [probe]
+    with:
+      selection: auto
+      prefer_embedded: true
+outputs:
+  - from: extract
+    key: subs
+ui:
+  kind: function
+  group: 字幕处理
+  order: 30

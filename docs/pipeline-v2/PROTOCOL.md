@@ -101,7 +101,10 @@ subtitle-engine.exe --rpc stdio
 | `engine.hello` | `client?, protocol?` | `EngineInfo` | M0 | 握手 |
 | `engine.shutdown` | `{}` | `"ok"` | M0 | 优雅退出；响应发出后进程退出 |
 | `steps.list` | `{}` | `StepSpec[]` | M0 | 步骤目录 + Options JSON Schema |
-| `pipeline.run` | `recipe?, recipe_id?, inputs?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1/M3 | 启动；省略 recipe 时按 recipe_id 加载，再省略则运行内置示例 |
+| `tasks.list` | `{}` | `TaskSpec[]` | v2 | 首页任务目录：`workflow` / `function` 及输入槽定义 |
+| `media.inspect` | `path` | `MediaInfo` | v2 | 探测音视频轨道，供手动选择字幕语言/轨道 |
+| `files.scan` | `paths, accept?, recursive?` | `{files:[{path,name,extension,size}]}` | v2 | 展开文件/文件夹，供通用投放预览与分发 |
+| `pipeline.run` | `recipe?, recipe_id?, inputs?, inputs_by_name?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1/M3 | 启动；省略 recipe 时按 recipe_id 加载，再省略则运行内置示例 |
 | `job.status` | `job_id` | `Run` | M0 | 查询运行状态 |
 | `job.cancel` | `job_id` | `"ok"` | M0 | 取消并杀子进程树 |
 | `recipes.list` | `{}` | `RecipeSummary[]` | M3 | 4 个内置模板 + 用户配方 |
@@ -126,6 +129,7 @@ subtitle-engine.exe --rpc stdio
 
 - `recipe`：完整配方对象，见第 6 节；省略时运行内置 `demo` 配方（单步 `demo.tick`）。
 - `inputs`：字符串路径数组，原样传给步骤上下文，M1 不复制文件。
+- `inputs_by_name`：命名输入对象 `{name: [paths]}`，按配方 `RecipeInput.bind` 绑定到步骤端口；支持文件与一层目录。省略 `inputs` 时命名输入同时作为扁平运行输入。
 - `options`：运行级选项对象，供 `when: "${options.x}"` 与后续步骤读取。
 - `max_retries`：可重试错误的最大重试次数（默认 1，0 表示不重试）。
 - `continue_on_error`：为 true 时某步失败只跳过其下游，其它分支继续（默认 false）。
@@ -252,7 +256,7 @@ M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标
 {
   "agent": {
     "base_url": "https://api.deepseek.com/v1",
-    "model": "deepseek-chat",
+    "model": "deepseek-flash",
     "temperature": 0,
     "timeout_s": 120,
     "max_retries": 2,
@@ -285,6 +289,34 @@ M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标
   `delete_ratio_limit`（默认 30%）强制转人工；自动应用写审计并可用 `review.undo` 撤销。
 - Agent 决策缓存键为 `(输入产物哈希 + 步骤选项 + prompt 版本 + model + base_url +
   structured_output)`；`auto_apply=true` 时不使用缓存，避免跳过审计。
+
+### 4.7 `media.inspect`（v2）
+
+参数 `{ "path": "<video path>" }`，返回与 `media.probe` 相同的媒体信息结构：
+
+```json
+{
+  "source_path": "D:/video/EP01.mkv",
+  "duration": 23.9,
+  "audio_langs": {"eng": 1},
+  "default_audio_lang": "eng",
+  "subtitles": [
+    {
+      "index": 2,
+      "codec_name": "subrip",
+      "language": "zh",
+      "title": "简体中文",
+      "default": false,
+      "forced": false,
+      "hearing_impaired": false
+    }
+  ],
+  "warnings": []
+}
+```
+
+前端据此展示字幕语言/轨道多选，并把选中的 `index` 写入
+`media.extract_subtitles` 步骤的 `with.tracks`。
 
 ## 5. 错误码
 
@@ -347,6 +379,26 @@ M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标
   "ui":{}
 }
 ```
+
+### 6.2.1 `RecipeInput` 与命名输入绑定（v2）
+
+```json
+{
+  "name":"original",
+  "label":"原版字幕",
+  "kind":"files",
+  "accept":[".srt"],
+  "required":true,
+  "multiple":true,
+  "bind":[{"step":"merge","port":"original"}]
+}
+```
+
+- `bind` 把命名输入注入指定步骤端口；绑定值优先于上游自动收集的同名端口产物。
+- 字符串输入支持文件与一层目录展开；`accept` 为空表示不限制扩展名。
+- 产物元数据写入 `role` / `input_name` / `source_path`，双语合并据此识别显式原文。
+- `pipeline.run` 缺少必填命名输入、路径不存在或扩展名不符时返回 `-32602`，并在 `error.data` 标明 `input`/`path`。
+- 任务目录 `tasks.list` 会把带 `ui.kind: workflow|function` 的内置/用户配方投影为首页任务，并原样返回 `inputs`。
 
 M1 执行约定：
 

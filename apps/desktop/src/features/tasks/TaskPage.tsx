@@ -1,0 +1,801 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  Clipboard,
+  FolderOpen,
+  Loader2,
+  Play,
+  RefreshCw,
+  Settings,
+  Workflow,
+} from "lucide-react";
+import {
+  createProject,
+  getProject,
+  getRecipe,
+  listSteps,
+  revealPath,
+  runRecipePayload,
+  scanFiles,
+} from "../../lib/api";
+import { onEngineEvent } from "../../lib/events";
+import { subtitleBaseName } from "../../lib/flow2";
+import type { RecipeDefinition, StepSpec, TaskSpec } from "../../lib/models";
+import { navigate } from "../../lib/router";
+import { restartEngine, type EngineStatus } from "../../lib/rpc";
+import { pickOriginalSubtitle, taskInputLabel } from "../../lib/tasks";
+import { getAppVersion } from "../../lib/version";
+import { useProjectStore } from "../../stores/projectStore";
+import { useRunStore } from "../../stores/runStore";
+import { useTaskStore, type TrackSelection } from "../../stores/taskStore";
+import { HandoffCard } from "../projects/HandoffCard";
+import { ProjectList } from "../projects/ProjectList";
+import { RunFeedback } from "../run-view/RunFeedback";
+import { TaskInputs } from "./TaskInputs";
+import { TaskOptions } from "./TaskOptions";
+import { TaskPicker } from "./TaskPicker";
+
+interface TaskPageProps {
+  engineStatus: EngineStatus;
+  initialTaskId?: string | null;
+}
+
+function engineBadge(status: EngineStatus): { text: string; tone: string } {
+  switch (status.state) {
+    case "ready":
+      return {
+        text: `引擎就绪 · v${status.version}`,
+        tone: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      };
+    case "starting":
+      return { text: "引擎启动中…", tone: "bg-amber-50 text-amber-700 border-amber-200" };
+    case "failed":
+      return {
+        text: `引擎不可用：${status.message}`,
+        tone: "bg-red-50 text-red-700 border-red-200",
+      };
+    default:
+      return { text: "引擎已停止", tone: "bg-slate-50 text-slate-600 border-slate-200" };
+  }
+}
+
+function isBilingualTask(task: TaskSpec | null): boolean {
+  return Boolean(
+    task &&
+      (task.id === "translated_to_bilingual" ||
+        task.recipe_id === "translated_to_bilingual" ||
+        task.inputs.some((input) => input.name === "original")),
+  );
+}
+
+function isExtractionRecipe(task: TaskSpec | null): boolean {
+  return Boolean(
+    task &&
+      (task.id === "video_to_clean_srt" ||
+        task.id === "fn_extract_subtitles" ||
+        task.recipe_id === "video_to_clean_srt"),
+  );
+}
+
+function artifactPathFrom(event: Record<string, unknown>): string | null {
+  const candidates = [event.artifact, event.path, event.output];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    if (typeof candidate === "object" && candidate !== null && "path" in candidate) {
+      const path = (candidate as { path?: unknown }).path;
+      if (typeof path === "string" && path.trim()) return path;
+    }
+  }
+  return null;
+}
+
+/** 首页任务页：选择任务 → 填写输入槽 / 参数 → 运行 → 查看产物。 */
+export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) {
+  const tasks = useTaskStore((state) => state.tasks);
+  const tasksLoading = useTaskStore((state) => state.loading);
+  const tasksError = useTaskStore((state) => state.error);
+  const selectedTaskId = useTaskStore((state) => state.selectedTaskId);
+  const allSlots = useTaskStore((state) => state.slots);
+  const allOptions = useTaskStore((state) => state.options);
+  const allAutofilled = useTaskStore((state) => state.autofilled);
+  const allTracks = useTaskStore((state) => state.tracks);
+  const allRouting = useTaskStore((state) => state.lastRouting);
+
+  const { projects, active, loading: projectsLoading, select, refresh } = useProjectStore();
+  const preferredProjectId = useProjectStore((state) => state.preferredProjectId);
+  const { runId, status, progress, logs, lastError, begin, reset } = useRunStore();
+
+  const [steps, setSteps] = useState<StepSpec[]>([]);
+  const [recipe, setRecipe] = useState<RecipeDefinition | null>(null);
+  const [recipeLoading, setRecipeLoading] = useState(false);
+  const [recipeError, setRecipeError] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const [startedRunId, setStartedRunId] = useState<string | null>(null);
+  const [outputs, setOutputs] = useState<string[]>([]);
+  const [artifactPaths, setArtifactPaths] = useState<string[]>([]);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [outputError, setOutputError] = useState<string | null>(null);
+  const [routeNotice, setRouteNotice] = useState<string | null>(null);
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
+
+  const startedExtractionRef = useRef(false);
+  const handledRunRef = useRef<string | null>(null);
+  const artifactPathsRef = useRef<string[]>([]);
+
+  const task = useMemo(
+    () => tasks.find((item) => item.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId],
+  );
+  const slots = task ? (allSlots[task.id] ?? {}) : {};
+  const options = task ? (allOptions[task.id] ?? {}) : {};
+  const autofilled = task ? (allAutofilled[task.id] ?? {}) : {};
+  const trackSelection: TrackSelection | undefined = task ? allTracks[task.id] : undefined;
+  const routing = task ? (allRouting[task.id] ?? null) : null;
+
+  const bilingual = isBilingualTask(task);
+  const extraction = isExtractionRecipe(task);
+  const engineReady = engineStatus.state === "ready";
+  const running = status === "running";
+
+  const videoInput = task?.inputs.find((input) => input.name === "video") ?? null;
+  const videoPath = videoInput ? (slots[videoInput.name]?.[0] ?? null) : null;
+
+  useEffect(() => {
+    void useTaskStore.getState().load();
+    void refresh();
+    void getAppVersion().then(setAppVersion);
+  }, [refresh]);
+
+  // 引擎启动完成/重启后重新拉取任务目录，避免首次打开时 tasks.list 失败后一直空着。
+  useEffect(() => {
+    if (engineStatus.state !== "ready") return;
+    void useTaskStore.getState().load();
+  }, [engineStatus.state]);
+
+  useEffect(() => {
+    let disposed = false;
+    void listSteps()
+      .then((list) => {
+        if (!disposed) setSteps(list);
+      })
+      .catch((error) => {
+        if (!disposed) setRecipeError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  // 深链接 / 任务切换：同步 store 中的选中项。
+  useEffect(() => {
+    if (!initialTaskId) return;
+    if (!tasks.some((item) => item.id === initialTaskId)) return;
+    useTaskStore.getState().selectTask(initialTaskId);
+  }, [initialTaskId, tasks]);
+
+  // 读取当前任务的完整配方。
+  useEffect(() => {
+    if (!task) {
+      setRecipe(null);
+      return;
+    }
+    setRouteNotice(null);
+    let disposed = false;
+    setRecipeLoading(true);
+    setRecipeError(null);
+    setRecipe(null);
+    void getRecipe(task.recipe_id)
+      .then((value) => {
+        if (!disposed) setRecipe(value);
+      })
+      .catch((error) => {
+        if (!disposed) setRecipeError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!disposed) setRecipeLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [task]);
+
+  // HandoffCard 写入 preferredProjectId 后，切到双语任务时自动填入原版字幕。
+  useEffect(() => {
+    if (!task || !bilingual || !preferredProjectId) return;
+    let disposed = false;
+    const projectId = preferredProjectId;
+    void getProject(projectId)
+      .then((project) => {
+        if (disposed) return;
+        useProjectStore.getState().applyUpdate(project);
+        const original = pickOriginalSubtitle(project.outputs.map((output) => output.path));
+        if (original) useTaskStore.getState().autoFillOriginal([original]);
+        setTargetProjectId(project.id);
+        useProjectStore.getState().preferProject(null);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setOutputError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [task, bilingual, preferredProjectId]);
+
+  // 采集 step.artifact 事件中的产物路径（run_id 匹配当前运行）。
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onEngineEvent((event) => {
+      if (event.type !== "step.artifact") return;
+      if (startedRunId && event.run_id && event.run_id !== startedRunId) return;
+      const path = artifactPathFrom(event);
+      if (!path) return;
+      if (!artifactPathsRef.current.includes(path)) {
+        artifactPathsRef.current = [...artifactPathsRef.current, path];
+      }
+      setArtifactPaths((current) => (current.includes(path) ? current : [...current, path]));
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [startedRunId]);
+
+  // 运行结束后读取项目产物；视频流程同时把干净 SRT 自动填入双语「原版」槽。
+  useEffect(() => {
+    if (status !== "done" || !startedRunId || runId !== startedRunId) return;
+    if (handledRunRef.current === startedRunId) return;
+    handledRunRef.current = startedRunId;
+
+    const projectId = useRunStore.getState().projectId;
+    const extractionRun = startedExtractionRef.current;
+
+    void (async () => {
+      let paths: string[] = [];
+      if (projectId) {
+        try {
+          const project = await getProject(projectId);
+          useProjectStore.getState().applyUpdate(project);
+          paths = project.outputs.map((output) => output.path);
+        } catch (error) {
+          setOutputError(error instanceof Error ? error.message : String(error));
+        }
+      } else {
+        paths = useProjectStore.getState().active?.outputs.map((output) => output.path) ?? [];
+      }
+      setOutputs(paths);
+      if (extractionRun) {
+        const original = pickOriginalSubtitle([...paths, ...artifactPathsRef.current]);
+        if (original) useTaskStore.getState().autoFillOriginal([original]);
+        if (projectId) useProjectStore.getState().preferProject(projectId);
+      }
+      void useProjectStore.getState().refresh();
+    })();
+  }, [status, runId, startedRunId]);
+
+  const handleSelectTask = useCallback((next: TaskSpec) => {
+    useTaskStore.getState().selectTask(next.id);
+    navigate({ name: "task", taskId: next.id });
+  }, []);
+
+  const handleSetSlot = useCallback((taskId: string, inputName: string, paths: string[]) => {
+    useTaskStore.getState().setSlot(taskId, inputName, paths);
+  }, []);
+
+  const handleClearSlot = useCallback((taskId: string, inputName: string) => {
+    useTaskStore.getState().clearSlot(taskId, inputName);
+  }, []);
+
+  const handleOptionsChange = useCallback(
+    (taskId: string, stepId: string, values: Record<string, unknown>) => {
+      useTaskStore.getState().setStepOptions(taskId, stepId, values);
+    },
+    [],
+  );
+
+  const handleTrackChange = useCallback((taskId: string, selection: TrackSelection) => {
+    useTaskStore.getState().setTrackSelection(taskId, selection);
+  }, []);
+
+  const handleRoute = useCallback(
+    async (taskId: string, paths: string[], overwrite: boolean, recursive: boolean) => {
+      const task = useTaskStore.getState().tasks.find((item) => item.id === taskId);
+      if (!task) return;
+      setRouteNotice(null);
+      const accept = Array.from(
+        new Set(task.inputs.flatMap((input) => input.accept)),
+      );
+      let expanded = paths;
+      try {
+        const scanned = await scanFiles({ paths, accept, recursive });
+        if (scanned.files.length === 0) {
+          setRouteNotice("所选文件或文件夹中没有匹配当前任务的文件。");
+          return;
+        }
+        expanded = scanned.files.map((file) => file.path);
+      } catch (error) {
+        setRouteNotice(
+          `读取文件夹失败，已按原始路径分配：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      useTaskStore.getState().applyRouting(taskId, expanded, overwrite);
+    },
+    [],
+  );
+
+  const handleMoveSlot = useCallback(
+    (taskId: string, fromInput: string, toInput: string, path: string) => {
+      useTaskStore.getState().moveSlotPath(taskId, fromInput, toInput, path);
+    },
+    [],
+  );
+
+  const handleUndoRouting = useCallback((taskId: string) => {
+    useTaskStore.getState().undoRouting(taskId);
+  }, []);
+
+  const handleRestart = useCallback(async () => {
+    if (restartBusy || engineStatus.state === "starting") return;
+    setRestartBusy(true);
+    setRestartError(null);
+    try {
+      await restartEngine();
+    } catch (error) {
+      setRestartError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRestartBusy(false);
+    }
+  }, [engineStatus.state, restartBusy]);
+
+  const missingInputs = useMemo(
+    () =>
+      task
+        ? task.inputs.filter(
+            (input) => input.required && (slots[input.name]?.length ?? 0) === 0,
+          )
+        : [],
+    [task, slots],
+  );
+
+  const tracksInvalid =
+    extraction && trackSelection?.mode === "manual" && trackSelection.indices.length === 0;
+
+  const canRun =
+    Boolean(task && recipe) &&
+    engineReady &&
+    !running &&
+    status !== "waiting_review" &&
+    missingInputs.length === 0 &&
+    !tracksInvalid;
+
+  const runTask = useCallback(async () => {
+    if (!task || !recipe) return;
+    reset();
+    setOutputs([]);
+    setArtifactPaths([]);
+    artifactPathsRef.current = [];
+    setOutputError(null);
+    setCopiedPath(null);
+    handledRunRef.current = null;
+
+    if (missingInputs.length > 0) {
+      useRunStore.setState({
+        status: "failed",
+        lastError: `请先填写必填输入：${missingInputs.map(taskInputLabel).join("、")}`,
+      });
+      return;
+    }
+    if (tracksInvalid) {
+      useRunStore.setState({
+        status: "failed",
+        lastError: "请至少选择一条字幕轨道，或切换为自动选择。",
+      });
+      return;
+    }
+
+    try {
+      const nextRecipe: RecipeDefinition = {
+        ...recipe,
+        steps: recipe.steps.map((step) => {
+          const withValues: Record<string, unknown> = {
+            ...step.with,
+            ...(options[step.id] ?? {}),
+          };
+          if (extraction && step.uses === "media.extract_subtitles") {
+            // 自动模式不传显式 tracks，由引擎按 selection 推荐。
+            delete withValues.tracks;
+            if (trackSelection?.mode === "manual" && trackSelection.indices.length > 0) {
+              withValues.tracks = trackSelection.indices;
+            }
+          }
+          return { ...step, with: withValues };
+        }),
+      };
+
+      const inputsByName: Record<string, string[]> = {};
+      const legacy: string[] = [];
+      for (const input of task.inputs) {
+        const values = slots[input.name] ?? [];
+        if (values.length > 0) inputsByName[input.name] = values;
+        for (const path of values) if (!legacy.includes(path)) legacy.push(path);
+      }
+
+      let projectId: string | undefined;
+      if (extraction && videoPath) {
+        const existing = useProjectStore
+          .getState()
+          .projects.find((project) => project.media_path === videoPath);
+        if (existing) {
+          projectId = existing.id;
+          setTargetProjectId(existing.id);
+        } else {
+          const project = await createProject({ media_path: videoPath });
+          useProjectStore.getState().applyUpdate(project);
+          projectId = project.id;
+          setTargetProjectId(project.id);
+        }
+      } else if (bilingual) {
+        projectId =
+          targetProjectId ??
+          useProjectStore.getState().preferredProjectId ??
+          active?.id ??
+          undefined;
+        if (!projectId) {
+          // 没有关联项目时建一个轻量项目，保证 ASS 落在项目 output/ 下，
+          // 同时让产物出现在项目列表里。
+          const sample = slots.original?.[0] ?? slots.translated?.[0] ?? "";
+          const name = sample ? subtitleBaseName(sample) || "双语合并" : "双语合并";
+          const existing = useProjectStore
+            .getState()
+            .projects.find((project) => project.name === name);
+          if (existing) {
+            projectId = existing.id;
+          } else {
+            const project = await createProject({ name });
+            useProjectStore.getState().applyUpdate(project);
+            projectId = project.id;
+          }
+          setTargetProjectId(projectId);
+        }
+      } else if (task.requires_project) {
+        projectId =
+          targetProjectId ??
+          useProjectStore.getState().preferredProjectId ??
+          active?.id ??
+          undefined;
+      }
+
+      const result = await runRecipePayload({
+        recipe: nextRecipe,
+        inputs: legacy,
+        inputsByName,
+        ...(projectId ? { projectId } : {}),
+      });
+      startedExtractionRef.current = extraction;
+      setStartedRunId(result.run_id);
+      begin(result.run_id, projectId ?? null);
+    } catch (error) {
+      useRunStore.setState({
+        status: "failed",
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [
+    active,
+    bilingual,
+    extraction,
+    missingInputs,
+    options,
+    recipe,
+    reset,
+    slots,
+    targetProjectId,
+    task,
+    trackSelection,
+    tracksInvalid,
+    videoPath,
+  ]);
+
+  const handleCopy = useCallback(async (path: string) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedPath(path);
+      window.setTimeout(() => setCopiedPath(null), 1500);
+    } catch (error) {
+      setOutputError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const handleReveal = useCallback(async (path: string) => {
+    try {
+      await revealPath(path);
+    } catch (error) {
+      setOutputError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const displayOutputs = useMemo(() => {
+    const merged = [...outputs];
+    for (const path of artifactPaths) if (!merged.includes(path)) merged.push(path);
+    return merged;
+  }, [artifactPaths, outputs]);
+
+  const badge = engineBadge(engineStatus);
+  const latestOutput = displayOutputs[displayOutputs.length - 1] ?? null;
+
+  return (
+    <div className="min-h-screen bg-slate-100 px-5 py-6 text-slate-900">
+      <div className="mx-auto max-w-6xl space-y-5">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">
+              字幕工具箱 · Pipeline v2
+              {appVersion && (
+                <span
+                  data-testid="app-version"
+                  className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500"
+                >
+                  v{appVersion}
+                </span>
+              )}
+            </h1>
+            <p className="text-sm text-slate-500">先选任务，再放入对应文件，最后运行。</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid="open-settings"
+              onClick={() => navigate({ name: "settings" })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Settings className="h-3.5 w-3.5" /> 设置
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate({ name: "editor", recipeId: null })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Workflow className="h-3.5 w-3.5" /> 配方编辑器
+            </button>
+            <span
+              className={`inline-flex max-w-md items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${badge.tone}`}
+            >
+              <span className="truncate">{badge.text}</span>
+            </span>
+            <button
+              type="button"
+              title="重启引擎"
+              data-testid="restart-engine"
+              aria-label="重启引擎"
+              disabled={restartBusy || engineStatus.state === "starting"}
+              onClick={() => void handleRestart()}
+              className="rounded-full border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {restartBusy || engineStatus.state === "starting" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </header>
+
+        {restartError && (
+          <p role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> 重启引擎失败：{restartError}
+          </p>
+        )}
+
+        <TaskPicker
+          tasks={tasks}
+          selectedId={selectedTaskId}
+          loading={tasksLoading}
+          error={tasksError}
+          onSelect={handleSelectTask}
+        />
+
+        {!task ? (
+          <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center text-sm text-slate-500">
+            {tasksLoading ? "正在读取任务目录…" : "暂无可执行任务，请确认引擎已就绪。"}
+          </p>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+            <div className="space-y-5">
+              <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-800">{task.title}</h2>
+                    <p className="mt-0.5 text-sm text-slate-500">{task.description}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">
+                      recipe: {task.recipe_id}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="run-task"
+                    onClick={() => void runTask()}
+                    disabled={!canRun}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {running ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                    {running ? "运行中…" : "开始运行"}
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-800">输入文件</h3>
+                  <TaskInputs
+                    task={task}
+                    slots={slots}
+                    autofilled={autofilled}
+                    routing={routing}
+                    disabled={running}
+                    onSet={handleSetSlot}
+                    onClear={handleClearSlot}
+                    onRoute={(paths, overwrite, recursive) =>
+                      void handleRoute(task.id, paths, overwrite, recursive)
+                    }
+                    onMove={handleMoveSlot}
+                    onUndoRouting={() => handleUndoRouting(task.id)}
+                  />
+                  {routeNotice && (
+                    <p
+                      role="alert"
+                      className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                    >
+                      {routeNotice}
+                    </p>
+                  )}
+                </div>
+
+                {missingInputs.length > 0 && (
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    请填写必填输入：{missingInputs.map(taskInputLabel).join("、")}
+                  </p>
+                )}
+                {tracksInvalid && (
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    请至少选择一条字幕轨道，或切换为自动选择。
+                  </p>
+                )}
+
+                <div className="mt-5">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-800">运行选项</h3>
+                  {recipeError ? (
+                    <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                      读取配方失败：{recipeError}
+                    </p>
+                  ) : recipeLoading ? (
+                    <p className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" /> 正在读取配方…
+                    </p>
+                  ) : (
+                    <TaskOptions
+                      task={task}
+                      steps={steps}
+                      recipe={recipe}
+                      options={options}
+                      selection={trackSelection}
+                      videoPath={videoPath}
+                      disabled={running}
+                      onOptionsChange={handleOptionsChange}
+                      onSelectionChange={handleTrackChange}
+                    />
+                  )}
+                </div>
+
+                {bilingual && targetedProjectHint(projects, targetProjectId)}
+
+                <RunFeedback
+                  runId={runId}
+                  status={status}
+                  progress={progress}
+                  logs={logs}
+                  lastError={lastError}
+                  onReset={reset}
+                />
+
+                {status === "waiting_review" && runId && (
+                  <button
+                    type="button"
+                    onClick={() => navigate({ name: "review", runId })}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500"
+                  >
+                    前往审核
+                  </button>
+                )}
+
+                {status === "done" && (
+                  <div
+                    data-testid="task-outputs"
+                    className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3"
+                  >
+                    <p className="text-xs font-medium text-emerald-800">运行完成 · 产物</p>
+                    {displayOutputs.length === 0 ? (
+                      <p className="mt-1 text-xs text-emerald-800">
+                        未获取到产物路径，请查看运行日志或下方项目。
+                      </p>
+                    ) : (
+                      <>
+                        <ul className="mt-1 space-y-1">
+                          {displayOutputs.map((path) => (
+                            <li key={path} className="break-all font-mono text-xs text-slate-800">
+                              {path}
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => latestOutput && void handleReveal(latestOutput)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => latestOutput && void handleCopy(latestOutput)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
+                          >
+                            {copiedPath === latestOutput ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Clipboard className="h-3.5 w-3.5" />
+                            )}
+                            {copiedPath === latestOutput ? "已复制" : "复制路径"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {outputError && <p className="mt-2 text-xs text-red-600">{outputError}</p>}
+                  </div>
+                )}
+              </section>
+
+              {active && <HandoffCard project={active} />}
+            </div>
+
+            <div className="space-y-5">
+              <ProjectList
+                projects={projects}
+                activeId={active?.id}
+                loading={projectsLoading}
+                onSelect={(id) => {
+                  setTargetProjectId(id);
+                  void select(id);
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function targetedProjectHint(
+  projects: Array<{ id: string; name: string }>,
+  targetProjectId: string | null,
+) {
+  if (!targetProjectId) return null;
+  const project = projects.find((item) => item.id === targetProjectId);
+  if (!project) return null;
+  return (
+    <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+      目标项目：{project.name}
+    </p>
+  );
+}

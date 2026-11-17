@@ -30,7 +30,7 @@ class AgentConfig(BaseModel):
         min_length=1,
         description="OpenAI 兼容 base URL，例如 https://api.deepseek.com/v1",
     )
-    model: str = Field(default="deepseek-chat", min_length=1)
+    model: str = Field(default="deepseek-flash", min_length=1)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     timeout_s: float = Field(default=120.0, gt=0.0, le=600.0)
     max_retries: int = Field(default=2, ge=0, le=5)

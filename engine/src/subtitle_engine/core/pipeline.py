@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..domain.paths import normalize_path
 from ..rpc.errors import (
     ENGINE_BUSY,
     INVALID_PARAMS,
@@ -29,6 +30,7 @@ from .models import (
     Artifact,
     Event,
     Recipe,
+    RecipeInput,
     Run,
     RunState,
     StepNode,
@@ -45,6 +47,47 @@ logger = logging.getLogger(__name__)
 _WHEN_RE = re.compile(r"^\$\{options\.([A-Za-z_][A-Za-z0-9_.]*)\}$")
 _RETRYABLE_ERRNOS = {errno.EAGAIN, errno.EBUSY, errno.ETXTBSY, errno.EACCES}
 _CACHE_SEP = "\x1f"
+_KIND_BY_SUFFIX = {".srt": "srt", ".ass": "ass", ".ssa": "ass", ".vtt": "vtt"}
+
+
+def _kind_from_suffix(suffix: str) -> str:
+    return _KIND_BY_SUFFIX.get(suffix.lower(), "any")
+
+
+def _expand_input_files(
+    input_spec: RecipeInput, paths: list[str]
+) -> list[Path]:
+    """展开命名输入路径（文件或一层目录），并按 ``accept`` 过滤/校验。"""
+    accepted = {suffix.lower() for suffix in input_spec.accept}
+    files: list[Path] = []
+    for raw in paths:
+        path = Path(normalize_path(str(raw)))
+        if path.is_dir():
+            for item in sorted(path.iterdir()):
+                if not item.is_file():
+                    continue
+                if accepted and item.suffix.lower() not in accepted:
+                    continue
+                files.append(item)
+            continue
+        if not path.is_file():
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"输入路径不存在: {path}",
+                {"input": input_spec.name, "path": str(path)},
+            )
+        if accepted and path.suffix.lower() not in accepted:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"输入 {input_spec.name} 不支持的文件格式: {path.suffix or '<无扩展名>'}",
+                {
+                    "input": input_spec.name,
+                    "path": str(path),
+                    "supported": list(input_spec.accept),
+                },
+            )
+        files.append(path)
+    return files
 
 
 class CancellationToken:
@@ -84,6 +127,7 @@ class Job:
     started_at_monotonic: float = field(default_factory=time.monotonic)
     options: dict[str, Any] = field(default_factory=dict)
     inputs: list[str] = field(default_factory=list)
+    inputs_by_name: dict[str, list[str]] = field(default_factory=dict)
     continue_on_error: bool = False
     max_retries: int = 1
     use_cache: bool = True
@@ -222,6 +266,7 @@ class JobManager:
         recipe: Recipe,
         *,
         inputs: list[str] | None = None,
+        inputs_by_name: dict[str, list[str]] | None = None,
         project_id: str | None = None,
         options: dict[str, Any] | None = None,
         continue_on_error: bool = False,
@@ -241,6 +286,14 @@ class JobManager:
         if max_retries < 0:
             raise JsonRpcError(INVALID_PARAMS, "max_retries 不能为负数")
 
+        named_inputs = {
+            name: list(paths) for name, paths in (inputs_by_name or {}).items()
+        }
+        flat_inputs = list(inputs or [])
+        if not flat_inputs and named_inputs:
+            # 命名输入同时也是运行输入，供没有端口的步骤（如 media.probe）读取。
+            flat_inputs = [path for paths in named_inputs.values() for path in paths]
+
         run_id = f"run_{uuid.uuid4().hex[:8]}"
         emitter = EventEmitter(self._send_event, run_id=run_id, project_id=project_id)
         run = Run(
@@ -254,7 +307,8 @@ class JobManager:
             run=run,
             emitter=emitter,
             options=options or {},
-            inputs=list(inputs or []),
+            inputs=flat_inputs,
+            inputs_by_name=named_inputs,
             continue_on_error=continue_on_error,
             max_retries=max_retries,
             use_cache=use_cache,
@@ -266,7 +320,7 @@ class JobManager:
         if project_id is not None:
             self._active_projects.add(project_id)
         job.task = asyncio.create_task(
-            self._execute(job, recipe, inputs or []), name=f"run:{run_id}"
+            self._execute(job, recipe, flat_inputs), name=f"run:{run_id}"
         )
         job.task.add_done_callback(lambda _task: self._on_job_done(job))
         self._persist(job)
@@ -314,6 +368,10 @@ class JobManager:
                 ),
                 options=state.options,
                 inputs=list(state.inputs),
+                inputs_by_name={
+                    name: list(paths)
+                    for name, paths in state.inputs_by_name.items()
+                },
                 continue_on_error=state.continue_on_error,
                 max_retries=state.max_retries,
                 use_cache=state.use_cache,
@@ -331,6 +389,9 @@ class JobManager:
             )
             job.options = state.options
             job.inputs = list(state.inputs)
+            job.inputs_by_name = {
+                name: list(paths) for name, paths in state.inputs_by_name.items()
+            }
             job.continue_on_error = state.continue_on_error
             job.max_retries = state.max_retries
             job.use_cache = state.use_cache
@@ -429,6 +490,9 @@ class JobManager:
             recipe=recipe,
             options=dict(job.options),
             inputs=list(job.inputs),
+            inputs_by_name={
+                name: list(paths) for name, paths in job.inputs_by_name.items()
+            },
             step_outputs=_serialize_outputs(outputs_by_step),
             project_id=job.run.project_id,
             workspace=str(job.workspace or self._workspace),
@@ -662,12 +726,17 @@ class JobManager:
             raise JsonRpcError(
                 INVALID_PARAMS, f"步骤 {node.id} 参数非法: {exc}", {"step": node.id}
             ) from exc
-        inputs = self._collect_inputs(node, step_cls, outputs_by_step)
+        inputs = self._collect_inputs(job, node, step_cls, outputs_by_step)
         return inputs, step_cls, options
 
     def _collect_inputs(
-        self, node: StepNode, step_cls: Any, outputs_by_step: dict[str, dict[str, Artifact]]
+        self,
+        job: Job,
+        node: StepNode,
+        step_cls: Any,
+        outputs_by_step: dict[str, dict[str, Artifact]],
     ) -> dict[str, Any]:
+        bound = self._collect_bound_inputs(job, node, step_cls)
         available: list[Artifact] = []
         for dep in node.needs:
             for value in outputs_by_step.get(dep, {}).values():
@@ -678,6 +747,11 @@ class JobManager:
 
         resolved: dict[str, Any] = {}
         for port_name, spec in step_cls.inputs.items():
+            if port_name in bound:
+                # 命名输入绑定优先于上游自动收集的产物。
+                values = bound[port_name]
+                resolved[port_name] = values if spec.multiple else values[0]
+                continue
             matches = [
                 artifact
                 for artifact in available
@@ -702,6 +776,105 @@ class JobManager:
                 )
         return resolved
 
+    def _collect_bound_inputs(
+        self, job: Job, node: StepNode, step_cls: Any
+    ) -> dict[str, list[Artifact]]:
+        """读取配方命名输入并登记为产物，按 ``bind`` 覆盖端口。"""
+        if job.recipe is None:
+            return {}
+        bound: dict[str, list[Artifact]] = {}
+        for input_spec in job.recipe.inputs:
+            bindings = [binding for binding in input_spec.bind if binding.step == node.id]
+            if not bindings:
+                continue
+            paths = list(job.inputs_by_name.get(input_spec.name) or [])
+            if not paths:
+                if input_spec.required:
+                    raise JsonRpcError(
+                        INVALID_PARAMS,
+                        f"缺少必填输入 {input_spec.name}",
+                        {
+                            "input": input_spec.name,
+                            "step": node.id,
+                            "required": True,
+                        },
+                    )
+                continue
+            files = _expand_input_files(input_spec, paths)
+            if not files:
+                raise JsonRpcError(
+                    INVALID_PARAMS,
+                    f"输入 {input_spec.name} 没有可用的文件",
+                    {
+                        "input": input_spec.name,
+                        "step": node.id,
+                        "paths": paths,
+                    },
+                )
+            if not input_spec.multiple and len(files) > 1:
+                raise JsonRpcError(
+                    INVALID_PARAMS,
+                    f"输入 {input_spec.name} 只允许一个文件，收到 {len(files)} 个",
+                    {
+                        "input": input_spec.name,
+                        "step": node.id,
+                        "paths": [str(path) for path in files],
+                    },
+                )
+            artifacts = [
+                self._ingest_named_file(input_spec.name, path) for path in files
+            ]
+            for binding in bindings:
+                if binding.port not in step_cls.inputs:
+                    raise JsonRpcError(
+                        INVALID_PARAMS,
+                        f"输入 {input_spec.name} 绑定了步骤 {node.id} 不存在的端口 {binding.port}",
+                        {
+                            "input": input_spec.name,
+                            "step": node.id,
+                            "port": binding.port,
+                        },
+                    )
+                bound[binding.port] = artifacts
+        return bound
+
+    def _ingest_named_file(self, input_name: str, path: Path) -> Artifact:
+        if self._store is None:
+            raise JsonRpcError(
+                STEP_FAILED,
+                "未初始化产物存储，无法登记命名输入",
+                {"input": input_name, "path": str(path)},
+            )
+        suffix = path.suffix.lower()
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"读取输入文件失败: {path}",
+                {"input": input_name, "path": str(path), "error": str(exc)},
+            ) from exc
+        stem = path.stem
+        meta = {
+            "source_path": str(path),
+            "source_stem": stem,
+            "output_stem": stem,
+            "role": input_name,
+            "input_name": input_name,
+            "ingested": True,
+        }
+        stored = self._store.put_bytes(
+            key=stem,
+            kind=_kind_from_suffix(suffix),
+            data=data,
+            suffix=suffix,
+            meta=meta,
+        )
+        # 内容寻址存储同哈希会复用旧记录，显式合并本次绑定元数据。
+        merged = dict(stored.meta or {})
+        merged.update(meta)
+        return stored.model_copy(update={"meta": merged})
+
     def _cache_key(
         self, job: Job, node: StepNode, step_cls: Any, options: Any, inputs: dict[str, Any]
     ) -> str | None:
@@ -713,8 +886,13 @@ class JobManager:
             if isinstance(value, Artifact) or isinstance(value, list)
         }
         # 无上游产物的步骤（如 media.probe）同样依赖运行输入路径；把 inputs
-        # 纳入缓存键，避免同一 data-dir 下换一个视频仍命中旧结果。
-        extra = _CACHE_SEP.join(sorted(job.inputs))
+        # 与命名输入一并纳入缓存键，避免换一个视频/原文仍命中旧结果。
+        named = [
+            f"{name}={path}"
+            for name in sorted(job.inputs_by_name)
+            for path in job.inputs_by_name[name]
+        ]
+        extra = _CACHE_SEP.join(sorted(job.inputs) + named)
         return self._cache.compute_key(
             step_id=node.uses,
             options=options.model_dump(mode="json"),

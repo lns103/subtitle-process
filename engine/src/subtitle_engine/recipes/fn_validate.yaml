@@ -1,0 +1,27 @@
+id: fn_validate
+name: 校验字幕
+version: 1
+description: 检查空文本、时间轴倒挂/重叠、时长、CPS 与行宽。
+builtin: true
+inputs:
+  - name: subs
+    label: 字幕文件
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: validate
+        port: subs
+steps:
+  - id: validate
+    uses: sub.validate
+    with:
+      fail_on_error: false
+outputs:
+  - from: validate
+    key: subs
+ui:
+  kind: function
+  group: 字幕处理
+  order: 32

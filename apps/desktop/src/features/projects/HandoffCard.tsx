@@ -3,7 +3,9 @@ import { ArrowRight, Check, Clipboard, FileCheck2, FolderOpen, Languages, Shield
 import { revealPath } from "../../lib/api";
 import type { Project } from "../../lib/models";
 import { navigate } from "../../lib/router";
+import { findBilingualTask } from "../../lib/tasks";
 import { useProjectStore } from "../../stores/projectStore";
+import { useTaskStore } from "../../stores/taskStore";
 
 interface HandoffCardProps {
   project: Project;
@@ -122,7 +124,13 @@ export function HandoffCard({ project }: HandoffCardProps) {
             data-testid="continue-translation"
             onClick={() => {
               useProjectStore.getState().preferProject(project.id);
-              navigate({ name: "home" });
+              const bilingual = findBilingualTask(useTaskStore.getState().tasks);
+              if (bilingual) {
+                useTaskStore.getState().selectTask(bilingual.id);
+                navigate({ name: "task", taskId: bilingual.id });
+              } else {
+                navigate({ name: "home" });
+              }
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >

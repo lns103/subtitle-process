@@ -39,4 +39,16 @@ describe("hash 路由", () => {
     expect(routeHash({ name: "settings" })).toBe("#/settings");
     expect(parseRoute(routeHash({ name: "settings" }))).toEqual({ name: "settings" });
   });
+
+  it("解析任务深链接", () => {
+    expect(parseRoute("#/task/video_to_clean_srt")).toEqual({
+      name: "task",
+      taskId: "video_to_clean_srt",
+    });
+    expect(parseRoute("#/task/a%20b/")).toEqual({ name: "task", taskId: "a b" });
+    expect(parseRoute("#/task/")).toEqual({ name: "home" });
+    const route = { name: "task", taskId: "fn_extract_subtitles" } as const;
+    expect(routeHash(route)).toBe("#/task/fn_extract_subtitles");
+    expect(parseRoute(routeHash(route))).toEqual(route);
+  });
 });

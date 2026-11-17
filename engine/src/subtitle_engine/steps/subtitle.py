@@ -104,7 +104,9 @@ class ValidateSubtitles(Step):
     id = "sub.validate"
     title = "校验字幕"
     description = "检查空文本、时间轴倒挂/重叠、时长、CPS 与行宽，输出结构化报告。"
-    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    inputs: dict[str, PortSpec] = {
+        "subs": PortSpec(kind="srt", required=False, multiple=True)
+    }
     outputs: dict[str, PortSpec] = {
         "subs": PortSpec(kind="srt", multiple=True),
         "report": PortSpec(kind="validation", multiple=True),
@@ -115,7 +117,7 @@ class ValidateSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: ValidateOptions = ctx.options  # type: ignore[assignment]
-        sources: list[Artifact] = inputs["subs"]
+        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(ctx)
         reports: list[Artifact] = []
 
         for position, artifact in enumerate(sources):
@@ -189,7 +191,7 @@ class ExportSubtitles(Step):
     title = "导出字幕"
     description = "把字幕写成 UTF-8 + LF 文件；覆盖前保留 .bak，并登记为运行产物。"
     inputs: dict[str, PortSpec] = {
-        "subs": PortSpec(kind="any", multiple=True),
+        "subs": PortSpec(kind="any", required=False, multiple=True),
         "report": PortSpec(kind="validation", required=False, multiple=True),
     }
     outputs: dict[str, PortSpec] = {"files": PortSpec(kind="any", multiple=True)}
@@ -200,10 +202,11 @@ class ExportSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: ExportOptions = ctx.options  # type: ignore[assignment]
+        candidates = inputs.get("subs") or ingest_run_inputs(
+            ctx, kind="any", suffixes=(".srt", ".ass", ".ssa", ".vtt")
+        )
         sources = [
-            item
-            for item in inputs.get("subs") or []
-            if item.kind in ("srt", "ass", "vtt")
+            item for item in candidates if item.kind in ("srt", "ass", "vtt")
         ]
         if not sources:
             raise JsonRpcError(INVALID_PARAMS, "没有可导出的字幕", {"step": self.id})

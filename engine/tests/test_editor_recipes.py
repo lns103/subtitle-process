@@ -132,11 +132,11 @@ async def test_editor_recipe_save_validate_and_run(tmp_path: Path) -> None:
 async def test_save_rejects_invalid_graph(tmp_path: Path) -> None:
     server = RpcServer(sink=lambda _message: None, data_dir=tmp_path / "data")
     try:
-        # sub.export 的 subs 输入为必填；没有上游连接时保存应被拒绝。
+        # sub.sdh_scan 的 subs 输入为必填；没有上游连接时保存应被拒绝。
         broken = {
             "id": "broken_editor_recipe",
             "name": "断开的流水线",
-            "steps": [{"id": "export", "uses": "sub.export", "with": {}}],
+            "steps": [{"id": "scan", "uses": "sub.sdh_scan", "with": {}}],
         }
         with pytest.raises(JsonRpcError) as excinfo:
             await server.dispatch(_request("recipes.save", {"recipe": broken}))

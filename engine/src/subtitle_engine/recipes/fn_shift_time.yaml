@@ -1,0 +1,36 @@
+id: fn_shift_time
+name: 时间轴平移
+version: 1
+description: 整体平移字幕时间轴，负值为提前。
+builtin: true
+inputs:
+  - name: subs
+    label: 字幕文件
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: shift
+        port: subs
+steps:
+  - id: shift
+    uses: sub.shift_time
+    with:
+      offset_seconds: 0.0
+      suffix: ".shifted"
+  - id: export
+    uses: sub.export
+    needs: [shift]
+    with:
+      format: srt
+      suffix: ""
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: function
+  group: 字幕处理
+  order: 35

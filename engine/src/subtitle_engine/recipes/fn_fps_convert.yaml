@@ -1,0 +1,37 @@
+id: fn_fps_convert
+name: 帧率转换
+version: 1
+description: 按帧率比例缩放字幕时间轴。
+builtin: true
+inputs:
+  - name: subs
+    label: 字幕文件
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: fps
+        port: subs
+steps:
+  - id: fps
+    uses: sub.fps_convert
+    with:
+      fps_in: 23.976
+      fps_out: 25.0
+      suffix: ".fps"
+  - id: export
+    uses: sub.export
+    needs: [fps]
+    with:
+      format: srt
+      suffix: ""
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: function
+  group: 字幕处理
+  order: 34

@@ -14,6 +14,13 @@ from ..rpc.errors import DEPENDENCY_MISSING, INVALID_PARAMS, STEP_FAILED, JsonRp
 
 logger = logging.getLogger(__name__)
 
+_KIND_BY_SUFFIX = {".srt": "srt", ".ass": "ass", ".ssa": "ass", ".vtt": "vtt"}
+
+
+def kind_from_suffix(suffix: str) -> str:
+    """按扩展名推断产物 kind；未知后缀返回 ``any``。"""
+    return _KIND_BY_SUFFIX.get(suffix.lower(), "any")
+
 
 def resolve_source(ctx: StepContext, explicit: str = "") -> str:
     """确定输入媒体路径：显式 ``options.source`` 优先，其次首个运行输入。"""
@@ -133,10 +140,11 @@ def ingest_run_inputs(
                 {"path": str(path), "supported": list(suffixes)},
             )
         key = f"{key_prefix}{path.stem}" if key_prefix else path.stem
+        artifact_kind = kind_from_suffix(str(suffix)) if kind == "any" else kind
         artifacts.append(
             ctx.services.store.put_bytes(
                 key=key,
-                kind=kind,
+                kind=artifact_kind,
                 data=path.read_bytes(),
                 suffix=suffix,
                 meta={

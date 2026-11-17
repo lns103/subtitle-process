@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   FlaskConical,
+  Info,
   KeyRound,
   Loader2,
   Lock,
@@ -13,6 +14,8 @@ import {
 } from "lucide-react";
 import { navigate } from "../../lib/router";
 import type { AgentSettings } from "../../lib/models";
+import { getEngineStatus, type EngineStatus } from "../../lib/rpc";
+import { getAppVersion } from "../../lib/version";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 const inputClass =
@@ -56,11 +59,18 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [keyNotice, setKeyNotice] = useState<string | null>(null);
   const [testFailed, setTestFailed] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>({ state: "starting" });
 
   useEffect(() => {
     void load();
     return () => reset();
   }, [load, reset]);
+
+  useEffect(() => {
+    void getAppVersion().then(setAppVersion);
+    void getEngineStatus().then(setEngineStatus);
+  }, []);
 
   // 引擎返回或保存成功后同步本地表单。
   useEffect(() => {
@@ -222,7 +232,7 @@ export function SettingsPage() {
                     value={draft.model}
                     disabled={loading}
                     onChange={(event) => update("model", event.target.value)}
-                    placeholder="deepseek-chat"
+                    placeholder="deepseek-flash"
                     className={inputClass}
                   />
                 </Field>
@@ -466,6 +476,38 @@ export function SettingsPage() {
                 )}
                 {testing ? "测试中…" : "测试连接"}
               </button>
+            </section>
+
+            <section
+              data-testid="about-card"
+              className="rounded-2xl border border-slate-200 bg-white p-5"
+            >
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <Info className="h-4 w-4 text-slate-500" /> 关于
+              </h2>
+              <dl className="mt-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-500">应用版本</dt>
+                  <dd className="font-mono text-slate-800">
+                    {appVersion ? `v${appVersion}` : "读取中…"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-500">引擎版本</dt>
+                  <dd className="font-mono text-slate-800">
+                    {engineStatus.state === "ready" ? `v${engineStatus.version}` : "—"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-500">协议版本</dt>
+                  <dd className="font-mono text-slate-800">
+                    {engineStatus.state === "ready" ? engineStatus.protocol : "—"}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-[11px] text-slate-400">
+                桌面端与引擎通过 stdio JSON-RPC 通信。
+              </p>
             </section>
           </div>
         </div>

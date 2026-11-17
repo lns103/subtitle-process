@@ -41,11 +41,21 @@ class StepSpec(BaseModel):
     deterministic: bool = True
 
 
+class RecipeInputBinding(BaseModel):
+    """把配方命名输入绑定到某个步骤的输入端口。"""
+
+    step: str
+    port: str
+
+
 class RecipeInput(BaseModel):
     name: str
     kind: Literal["file", "folder", "files"] = "file"
     accept: list[str] = Field(default_factory=list)
     required: bool = True
+    label: str = ""
+    multiple: bool = False
+    bind: list[RecipeInputBinding] = Field(default_factory=list)
 
 
 class StepNode(BaseModel):
@@ -280,6 +290,7 @@ class RunState(BaseModel):
     recipe: Recipe
     options: dict[str, Any] = Field(default_factory=dict)
     inputs: list[str] = Field(default_factory=list)
+    inputs_by_name: dict[str, list[str]] = Field(default_factory=dict)
     step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     project_id: str | None = None
     workspace: str = ""

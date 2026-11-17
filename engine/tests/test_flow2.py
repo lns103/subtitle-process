@@ -144,7 +144,10 @@ async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
                 "pipeline.run",
                 {
                     "recipe_id": "translated_to_bilingual",
-                    "inputs": [str(translated)],
+                    "inputs_by_name": {
+                        "original": [str(clean_srt)],
+                        "translated": [str(translated)],
+                    },
                     "project_id": project["id"],
                 },
             )
@@ -207,7 +210,10 @@ async def test_flow2_restart_keeps_done_project(tmp_path: Path) -> None:
                 "pipeline.run",
                 {
                     "recipe_id": "translated_to_bilingual",
-                    "inputs": [str(translated)],
+                    "inputs_by_name": {
+                        "original": [str(clean_srt)],
+                        "translated": [str(translated)],
+                    },
                     "project_id": project_id,
                 },
             )

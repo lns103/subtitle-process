@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from ..rpc.errors import RECIPE_INVALID, JsonRpcError
 from .models import Recipe, RecipeSummary
@@ -24,6 +25,16 @@ _BUILTIN_RECIPES = (
     "translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",
+    "fn_extract_subtitles",
+    "fn_normalize",
+    "fn_validate",
+    "fn_sdh_scan",
+    "fn_fps_convert",
+    "fn_shift_time",
+    "fn_outline_scale",
+    "fn_export",
+    "fn_merge_bilingual",
+    "fn_rename",
 )
 
 
@@ -49,6 +60,45 @@ class RecipeLibrary:
         for recipe in self._load_user_recipes().values():
             summaries[recipe.id] = self._summary(recipe)
         return sorted(summaries.values(), key=lambda item: (not item.builtin, item.name))
+
+    def tasks(self) -> list[dict[str, Any]]:
+        """``tasks.list``：按 ``ui.kind`` 汇总可执行的工作流/单功能任务。"""
+        recipes: dict[str, Recipe] = {}
+        for recipe in self._load_builtins().values():
+            recipes[recipe.id] = recipe
+        for recipe in self._load_user_recipes().values():
+            recipes[recipe.id] = recipe
+
+        tasks: list[dict[str, Any]] = []
+        for recipe in recipes.values():
+            kind = str(recipe.ui.get("kind") or "").strip()
+            if kind not in ("workflow", "function"):
+                continue
+            order = recipe.ui.get("order", 100)
+            try:
+                order_value = int(order)
+            except (TypeError, ValueError):
+                order_value = 100
+            tasks.append(
+                {
+                    "id": recipe.id,
+                    "recipe_id": recipe.id,
+                    "kind": kind,
+                    "group": str(recipe.ui.get("group") or "其他"),
+                    "order": order_value,
+                    "title": recipe.name,
+                    "description": recipe.description,
+                    "inputs": [
+                        item.model_dump(mode="json", exclude_none=True)
+                        for item in recipe.inputs
+                    ],
+                    "requires_project": False,
+                }
+            )
+        tasks.sort(
+            key=lambda task: (task["group"], task["order"], task["title"], task["id"])
+        )
+        return tasks
 
     def get(self, recipe_id: str) -> Recipe:
         builtin = self._load_builtins().get(recipe_id)

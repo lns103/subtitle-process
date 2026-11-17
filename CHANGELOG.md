@@ -4,9 +4,32 @@
 
 ## Unreleased — Pipeline v2
 
+### 任务化界面与命名输入
+
+#### 新增
+- **首页任务化**：主界面改为「先选任务，再显示输入槽」。`tasks.list` 汇总 `workflow` / `function` 两类任务，内置 2 条主流程与 10 个单项功能配方（提取字幕、规范、校验、SDH 扫描、帧率转换、时间轴平移、ASS 描边缩放、导出、双语合并、重命名）。
+- **通用投放与自动分发**：输入区新增“通用投放”槽，支持文件/文件夹；按扩展名、槽位语义、`.clean` / 语言后缀 / 文件夹名（含“译文”“翻译”或 `translated`）自动填入原版、译文或视频槽。文件夹会通过 `files.scan` 展开为逐个文件，分配结果可见、可撤销，默认不覆盖已有内容，可勾选“覆盖已有”和“包含子目录”。文件行可拖动到其他槽位改槽；单文件槽已有内容时交换而不是覆盖。
+- **命名输入绑定**：`RecipeInput` 新增 `label` / `multiple` / `bind`；`pipeline.run` 支持 `inputs_by_name`，按配方绑定把原版/译文等命名输入注入指定步骤端口，并纳入缓存键。
+- **双语合并双输入**：`translated_to_bilingual` 升级为 v2，固定「原版字幕 + 译文字幕」两个输入；`sub.merge_bilingual` 支持显式 `original` / `translated` 端口，保留旧的 `subs` 配对兜底。
+- **视频提取自动填入原版**：视频流程或提取功能完成后，把导出的干净 SRT 自动写入双语任务的「原版」槽；用户手动填写后不再覆盖。
+- **手动提取字幕语言选择**：新增 `media.inspect` RPC；提取任务会探测内嵌字幕轨道并展示语言/标题/默认/强制/SDH 多选，选中轨道写入 `tracks`。
+- **应用版本号**：首页与设置页展示 Tauri 应用版本、引擎版本与协议版本；Vite 构建时注入 `package.json` 版本作为回退。
+- **CLI 命名输入**：`subtitle_engine run --input-name NAME=PATH`，并同步更新 `scripts/e2e.ps1` 的双语阶段。
+- **默认模型**：Agent 默认模型改为 `deepseek-flash`（前端默认值与占位符同步）。
+
+#### 修复
+- **重启死循环**：引擎 supervisor 为每次启动分配 generation；手动重启/关机产生的旧进程 stdout 关闭事件会被丢弃，排队中的自动重启也会失效，修复“点一次重启后持续重启”的竞态。
+- **重启按钮**：引擎处于 `starting` 时禁用，并增加本地 busy 状态防止连点。
+
+#### 测试
+- 引擎 `242 passed, 1 skipped`，`ruff check` 通过；新增命名输入、任务目录、显式双语合并、`media.inspect`、`files.scan`、默认模型、CLI 命名输入参数等用例。
+- 前端 `110 passed`，`tsc --noEmit` 与 `vite build` 通过；新增任务目录/输入槽/通用分发/拖动改槽/自动填充用例。
+- Rust `cargo test --lib` 10 个用例通过（含 3 个重启 generation 回归测试）。
+- 追加 RPC 冒烟：`tasks.list`、双语双输入生成 ASS、`fn_normalize` / `fn_merge_bilingual` / `fn_rename` 均通过。
+
 ### 版本
 
-- 桌面应用版本号提升至 **`1.0.0-alpha1`**：Tauri、前端与 Rust 配置保持同步；Python 引擎版本仍为 `0.1.0`。
+- 桌面应用版本号提升至 **`1.0.0-alpha2`**：Tauri、前端与 Rust 配置保持同步；Python 引擎版本仍为 `0.1.0`。
 - 同步 `package-lock.json`，补齐缺失的 Tauri 插件条目，恢复 `npm ci` 可复现安装。
 - 打包新增免安装 ZIP（`scripts/package-portable.ps1`）；CI 在检查全部通过后自动构建并上传 NSIS 安装包与 portable ZIP，Release 同样附带该 ZIP。产物文件名统一使用 ASCII（`SubtitleProcess_<version>_x64-setup.exe`、`subtitle-process_<version>_x64-portable.zip`），避免 GitHub Release 过滤中文字符。
 

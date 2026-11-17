@@ -19,6 +19,7 @@ from typing import Any, BinaryIO
 
 from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
+from ..adapters import ffmpeg
 from ..agents.client import AgentError, AgentNotConfigured
 from ..agents.service import AgentService, ClientFactory
 from ..core.audit import restore_from_audit
@@ -34,6 +35,7 @@ from ..core.models import (
 )
 from ..core.paths import resolve_data_dir
 from ..core.pipeline import JobManager
+from ..core.processes import ProcessRegistry
 from ..core.projects import ProjectManager
 from ..core.recipe_library import RecipeLibrary
 from ..core.registry import step_specs
@@ -42,6 +44,9 @@ from ..core.secrets import SecretStore, SecretStoreError, SecretStoreProtocol
 from ..core.settings import AppSettings, save_settings, settings_payload
 from ..core.store import Store
 from ..core.validation import ensure_valid, validate_recipe
+from ..domain import media as domain_media
+from ..domain.paths import normalize_path
+from ..steps._support import command_error, dependency_error
 from . import framing
 from .errors import (
     AGENT_NOT_CONFIGURED,
@@ -125,6 +130,8 @@ class RpcServer:
             "engine.hello": self._handle_hello,
             "engine.shutdown": self._handle_shutdown,
             "steps.list": self._handle_steps_list,
+            "tasks.list": self._handle_tasks_list,
+            "files.scan": self._handle_files_scan,
             "recipes.list": self._handle_recipes_list,
             "recipes.get": self._handle_recipes_get,
             "recipes.save": self._handle_recipes_save,
@@ -145,6 +152,7 @@ class RpcServer:
             "settings.set": self._handle_settings_set,
             "secrets.set": self._handle_secrets_set,
             "agent.test": self._handle_agent_test,
+            "media.inspect": self._handle_media_inspect,
         }
 
     @property
@@ -376,6 +384,85 @@ class RpcServer:
     async def _handle_steps_list(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         return [spec.model_dump(mode="json") for spec in step_specs()]
 
+    async def _handle_tasks_list(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        return self._recipes.tasks()
+
+    async def _handle_files_scan(self, params: dict[str, Any]) -> dict[str, Any]:
+        """展开文件夹中的候选输入文件；供通用投放预览与规则分发使用。"""
+        raw_paths = params.get("paths")
+        if raw_paths is None:
+            raw_paths = [params.get("path")]
+        if not isinstance(raw_paths, list) or not raw_paths or not all(
+            isinstance(item, str) and item.strip() for item in raw_paths
+        ):
+            raise JsonRpcError(
+                INVALID_PARAMS, "paths 必须是非空路径字符串数组", {"paths": raw_paths}
+            )
+        raw_accept = params.get("accept") or []
+        if not isinstance(raw_accept, list) or not all(
+            isinstance(item, str) for item in raw_accept
+        ):
+            raise JsonRpcError(INVALID_PARAMS, "accept 必须是字符串数组")
+        accepted = {
+            (item if item.startswith(".") else f".{item}").lower()
+            for item in raw_accept
+            if item.strip() and item.strip() not in ("*", ".*")
+        }
+        recursive = bool(params.get("recursive", False))
+        max_files = 5000
+
+        def wanted(path: Path) -> bool:
+            return not accepted or path.suffix.lower() in accepted
+
+        files: list[Path] = []
+        for raw in raw_paths:
+            path = Path(normalize_path(raw))
+            if not path.exists():
+                raise JsonRpcError(
+                    INVALID_PARAMS, f"输入路径不存在: {path}", {"path": str(path)}
+                )
+            if path.is_file():
+                if wanted(path):
+                    files.append(path)
+                continue
+            if not path.is_dir():
+                continue
+            iterator = path.rglob("*") if recursive else path.iterdir()
+            for item in sorted(iterator):
+                if not item.is_file() or not wanted(item):
+                    continue
+                files.append(item)
+                if len(files) > max_files:
+                    raise JsonRpcError(
+                        INVALID_PARAMS,
+                        f"文件夹内匹配文件过多（超过 {max_files} 个），请缩小范围",
+                        {"path": str(path), "limit": max_files},
+                    )
+
+        seen: set[str] = set()
+        payload: list[dict[str, Any]] = []
+        for path in files:
+            try:
+                key = str(path.resolve()).lower()
+            except OSError:
+                key = str(path).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            payload.append(
+                {
+                    "path": str(path),
+                    "name": path.name,
+                    "extension": path.suffix.lower(),
+                    "size": size,
+                }
+            )
+        return {"files": payload}
+
     async def _handle_pipeline_run(self, params: dict[str, Any]) -> dict[str, str]:
         recipe = self._load_recipe_param(params, required=False) or default_demo_recipe()
         if not recipe.steps:
@@ -383,6 +470,28 @@ class RpcServer:
         inputs = params.get("inputs") or []
         if not isinstance(inputs, list) or not all(isinstance(p, str) for p in inputs):
             raise JsonRpcError(INVALID_PARAMS, "inputs 必须是路径字符串数组")
+        raw_named = params.get("inputs_by_name") or {}
+        if not isinstance(raw_named, dict):
+            raise JsonRpcError(INVALID_PARAMS, "inputs_by_name 必须是对象")
+        inputs_by_name: dict[str, list[str]] = {}
+        for name, paths in raw_named.items():
+            if not isinstance(name, str) or not name:
+                raise JsonRpcError(INVALID_PARAMS, "inputs_by_name 的键必须是非空字符串")
+            if isinstance(paths, str):
+                paths = [paths]
+            if not isinstance(paths, list) or not all(
+                isinstance(path, str) for path in paths
+            ):
+                raise JsonRpcError(
+                    INVALID_PARAMS,
+                    f"inputs_by_name.{name} 必须是路径字符串数组",
+                    {"input": name},
+                )
+            inputs_by_name[name] = list(paths)
+        # 没有扁平 inputs 时，把命名输入同时作为运行输入传给 media.probe 等
+        # 没有输入端口、直接读取 pipeline.run.inputs 的步骤。
+        if not inputs and inputs_by_name:
+            inputs = [path for paths in inputs_by_name.values() for path in paths]
         options_param = params.get("options")
         if options_param is None:
             options: dict[str, Any] = {}
@@ -407,6 +516,7 @@ class RpcServer:
         run = self._jobs.start(
             recipe,
             inputs=inputs,
+            inputs_by_name=inputs_by_name,
             project_id=project.id if project else params.get("project_id"),
             options=options,
             max_retries=max_retries,
@@ -666,6 +776,36 @@ class RpcServer:
             "model": result.model,
             "base_url": result.base_url,
         }
+
+    async def _handle_media_inspect(self, params: dict[str, Any]) -> dict[str, Any]:
+        """探测媒体轨道，供 UI 在手动提取字幕时选择语言/轨道。"""
+        path = _require_str(params, "path")
+        source = normalize_path(path)
+        if not Path(source).is_file():
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                f"媒体文件不存在: {source}",
+                {"path": source},
+            )
+        processes = ProcessRegistry()
+        try:
+            data = await ffmpeg.probe_json(source, processes)
+            info = domain_media.parse_ffprobe(data, source_path=source)
+            if domain_media.needs_mkvmerge(info, source):
+                mkv_data = await ffmpeg.probe_json(
+                    source, processes, tool=ffmpeg.MKVMERGE
+                )
+                info = domain_media.enrich_with_mkvmerge(info, mkv_data)
+                info.setdefault("warnings", []).append(
+                    "FFprobe 未识别的字幕编码已由 mkvmerge 补充"
+                )
+        except ffmpeg.DependencyMissingError as exc:
+            raise dependency_error(exc) from exc
+        except ffmpeg.CommandFailedError as exc:
+            raise command_error(exc, step="media.inspect") from exc
+        finally:
+            processes.kill_all()
+        return info
 
     # ---- 内部辅助 -----------------------------------------------------
     def _load_recipe_param(

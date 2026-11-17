@@ -278,7 +278,8 @@ raise SystemExit(asyncio.run(main()))
 
             $bilingualCode = Invoke-EngineRun @(
                 "run", $BilingualRecipe,
-                "--input", $ChineseSrt,
+                "--input-name", "original=$($cleanOutputs[0].FullName)",
+                "--input-name", "translated=$ChineseSrt",
                 "--data-dir", $DataDir,
                 "--project-id", $projectId
             )

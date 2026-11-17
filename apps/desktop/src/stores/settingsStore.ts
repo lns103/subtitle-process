@@ -5,7 +5,7 @@ import type { AgentSettings, AgentTestResult, AppSettings } from "../lib/models"
 /** 引擎返回设置前用于渲染表单的默认值，与 M6 协议默认值保持一致。 */
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   base_url: "https://api.deepseek.com/v1",
-  model: "deepseek-chat",
+  model: "deepseek-flash",
   temperature: 0,
   timeout_s: 120,
   max_retries: 2,

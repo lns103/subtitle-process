@@ -884,7 +884,7 @@ class SdhCandidate(BaseModel):
   "action": "remove",
   "source": "agent",
   "confidence": 0.93,
-  "model": "deepseek-chat",
+  "model": "deepseek-flash",
   "prompt_version": "sdh_v1",
   "ts": "..."
 }
@@ -911,7 +911,7 @@ class SdhCandidate(BaseModel):
 ```json
 {
   "base_url": "https://api.deepseek.com/v1",
-  "model": "deepseek-chat",
+  "model": "deepseek-flash",
   "temperature": 0,
   "timeout_s": 120,
   "max_retries": 2

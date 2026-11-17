@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 /** 极简 hash 路由：Tauri WebView 内无需引入完整路由库。 */
 export type Route =
   | { name: "home" }
+  | { name: "task"; taskId: string }
   | { name: "editor"; recipeId: string | null }
   | { name: "review"; runId: string }
   | { name: "settings" };
@@ -10,6 +11,11 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, "");
   const path = raw.split("?")[0] ?? "";
+  const task = /^\/task\/([^/]+)\/?$/.exec(path);
+  if (task) {
+    const taskId = decodeURIComponent(task[1] ?? "");
+    if (taskId.trim()) return { name: "task", taskId };
+  }
   const review = /^\/review\/([^/]+)\/?$/.exec(path);
   if (review) {
     const runId = decodeURIComponent(review[1] ?? "");
@@ -27,6 +33,9 @@ export function parseRoute(hash: string): Route {
 }
 
 export function routeHash(route: Route): string {
+  if (route.name === "task") {
+    return `#/task/${encodeURIComponent(route.taskId)}`;
+  }
   if (route.name === "editor") {
     return route.recipeId ? `#/editor/${encodeURIComponent(route.recipeId)}` : "#/editor";
   }

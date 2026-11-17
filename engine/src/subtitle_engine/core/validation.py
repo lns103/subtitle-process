@@ -59,6 +59,11 @@ def validate_recipe(
 
     base = (workspace or Path.cwd()).resolve()
     export_targets: dict[tuple[str, str], str] = {}
+    bound_ports = {
+        (binding.step, binding.port)
+        for item in recipe.inputs
+        for binding in item.bind
+    }
 
     for node in recipe.steps:
         step_cls = steps.get(node.id)
@@ -66,7 +71,7 @@ def validate_recipe(
             continue
         _check_when(node, errors)
         _check_options(node, step_cls, errors)
-        _check_ports(node, step_cls, by_id, steps, errors)
+        _check_ports(node, step_cls, by_id, steps, errors, bound_ports)
         _check_agent(node, step_cls, agent_configured, warnings)
         if step_cls.id == "sub.export":
             _check_export_path(node, base, export_targets, errors)
@@ -196,6 +201,7 @@ def _check_ports(
     by_id: dict[str, StepNode],
     steps: dict[str, Any],
     errors: list[ValidationIssue],
+    bound_ports: set[tuple[str, str]] | None = None,
 ) -> None:
     available: list[tuple[str, str]] = []
     for dep in node.needs:
@@ -206,8 +212,11 @@ def _check_ports(
         for port_name, spec in dep_cls.outputs.items():
             available.append((port_name, spec.kind))
 
+    bound_ports = bound_ports or set()
     for port_name, spec in step_cls.inputs.items():
         if not spec.required:
+            continue
+        if (node.id, port_name) in bound_ports:
             continue
         if any(_compatible(kind, spec.kind) for _, kind in available):
             continue

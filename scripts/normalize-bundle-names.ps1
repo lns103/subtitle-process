@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     GitHub release assets strip non-ASCII characters from filenames (for example
-    `字幕工具箱_1.0.0-alpha1_x64-setup.exe` becomes `_1.0.0-alpha1_x64-setup.exe`).
+    `字幕工具箱_1.0.0-alpha2_x64-setup.exe` becomes `_1.0.0-alpha2_x64-setup.exe`).
     Tauri names the NSIS installer after `productName`, so this script renames the
     generated installer to `SubtitleProcess_<version>_<arch>-setup.exe`.
 

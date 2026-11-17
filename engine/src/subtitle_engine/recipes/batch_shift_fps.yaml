@@ -5,6 +5,7 @@ description: 按帧率比例缩放一批 SRT 的时间轴，输出 <原名>.fps.
 builtin: true
 inputs:
   - name: files
+    label: 字幕文件
     kind: files
     accept: [".srt"]
     required: true
@@ -31,4 +32,7 @@ steps:
 outputs:
   - from: export
     key: files
-ui: {}
+ui:
+  kind: workflow
+  group: 批处理
+  order: 50

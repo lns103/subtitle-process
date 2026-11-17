@@ -1,0 +1,40 @@
+id: fn_normalize
+name: 规范字幕
+version: 1
+description: 清理括号/标签/人名提示，合并短句与相同行。
+builtin: true
+inputs:
+  - name: subs
+    label: 字幕文件
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: normalize
+        port: subs
+steps:
+  - id: normalize
+    uses: sub.normalize
+    with:
+      strip_html: true
+      merge_short: true
+      merge_identical: true
+      clean_person: true
+      clean_uppercase: false
+      zh_punctuation: false
+  - id: export
+    uses: sub.export
+    needs: [normalize]
+    with:
+      format: srt
+      suffix: ".clean"
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: function
+  group: 字幕处理
+  order: 31

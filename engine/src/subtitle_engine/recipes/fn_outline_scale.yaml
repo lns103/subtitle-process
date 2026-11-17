@@ -1,0 +1,36 @@
+id: fn_outline_scale
+name: ASS 描边缩放
+version: 1
+description: 按 PlayResY 与目标分辨率缩放 ASS 的 Outline/Shadow。
+builtin: true
+inputs:
+  - name: subs
+    label: ASS 字幕
+    kind: files
+    accept: [".ass"]
+    required: true
+    multiple: true
+    bind:
+      - step: outline
+        port: subs
+steps:
+  - id: outline
+    uses: sub.outline_scale
+    with:
+      target_res: 1080
+      suffix: ".scaled"
+  - id: export
+    uses: sub.export
+    needs: [outline]
+    with:
+      format: ass
+      suffix: ""
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: function
+  group: 字幕处理
+  order: 36

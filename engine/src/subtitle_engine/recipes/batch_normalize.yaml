@@ -5,6 +5,7 @@ description: 对一批 SRT 执行清理、合并与校验，输出 <原名>.norm
 builtin: true
 inputs:
   - name: files
+    label: 字幕文件
     kind: files
     accept: [".srt"]
     required: true
@@ -34,4 +35,7 @@ steps:
 outputs:
   - from: export
     key: files
-ui: {}
+ui:
+  kind: workflow
+  group: 批处理
+  order: 40

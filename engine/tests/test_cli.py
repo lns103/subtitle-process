@@ -78,3 +78,16 @@ def test_cli_missing_recipe_returns_2(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "无法加载配方" in result.stderr
     assert result.stdout == ""
+
+
+def test_cli_rejects_malformed_named_input(tmp_path: Path) -> None:
+    result = run_cli(
+        "run",
+        str(DEMO_RECIPE),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--input-name",
+        "broken",
+    )
+    assert result.returncode == 2
+    assert "命名输入格式错误" in result.stderr

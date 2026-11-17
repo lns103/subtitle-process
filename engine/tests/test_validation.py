@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from subtitle_engine import steps as _steps  # noqa: F401 - 注册步骤
-from subtitle_engine.core.models import Recipe
+from subtitle_engine.core.models import Recipe, RecipeInput, RecipeInputBinding
 from subtitle_engine.core.validation import validate_recipe
 
 
@@ -64,7 +64,7 @@ def test_unknown_step(tmp_path: Path) -> None:
 
 
 def test_missing_required_input(tmp_path: Path) -> None:
-    recipe = _recipe([{"id": "merge", "uses": "sub.merge_bilingual"}])
+    recipe = _recipe([{"id": "scan", "uses": "sub.sdh_scan"}])
     result = validate_recipe(recipe, workspace=tmp_path)
     assert "missing_required_input" in _codes(result)
 
@@ -73,11 +73,25 @@ def test_incompatible_port(tmp_path: Path) -> None:
     recipe = _recipe(
         [
             {"id": "text", "uses": "demo.generate"},
-            {"id": "merge", "uses": "sub.merge_bilingual", "needs": ["text"]},
+            {"id": "scan", "uses": "sub.sdh_scan", "needs": ["text"]},
         ]
     )
     result = validate_recipe(recipe, workspace=tmp_path)
     assert "incompatible_port" in _codes(result)
+
+
+def test_named_input_binding_satisfies_required_port(tmp_path: Path) -> None:
+    recipe = _recipe([{"id": "scan", "uses": "sub.sdh_scan"}])
+    recipe.inputs = [
+        RecipeInput(
+            name="subs",
+            kind="files",
+            accept=[".srt"],
+            bind=[RecipeInputBinding(step="scan", port="subs")],
+        )
+    ]
+    result = validate_recipe(recipe, workspace=tmp_path)
+    assert result.ok, [issue.message for issue in result.errors]
 
 
 def test_invalid_options(tmp_path: Path) -> None:

@@ -2,14 +2,17 @@ import { engineCall } from "./rpc";
 import type {
   AgentTestResult,
   AppSettings,
+  FileScanResult,
   Project,
   ProjectSummary,
   RecipeDefinition,
   RecipeSummary,
   ReviewDecision,
   ReviewItem,
+  MediaInfo,
   ReviewUndoResult,
   StepSpec,
+  TaskSpec,
   ValidationResult,
 } from "./models";
 
@@ -67,6 +70,29 @@ export function revealPath(path: string): Promise<string> {
   return engineCall<string>("artifact.reveal", { path });
 }
 
+// ---- 首页任务目录与媒体检查 --------------------------------------------
+
+export function listTasks(): Promise<TaskSpec[]> {
+  return engineCall<TaskSpec[]>("tasks.list");
+}
+
+/** 展开文件/文件夹中的候选输入，供通用投放预览使用。 */
+export function scanFiles(params: {
+  paths: string[];
+  accept?: string[];
+  recursive?: boolean;
+}): Promise<FileScanResult> {
+  return engineCall<FileScanResult>("files.scan", {
+    paths: params.paths,
+    ...(params.accept && params.accept.length > 0 ? { accept: params.accept } : {}),
+    ...(params.recursive ? { recursive: true } : {}),
+  });
+}
+
+export function inspectMedia(path: string): Promise<MediaInfo> {
+  return engineCall<MediaInfo>("media.inspect", { path });
+}
+
 // ---- M4 自由连线编辑器 -------------------------------------------------
 
 export function listSteps(): Promise<StepSpec[]> {
@@ -100,12 +126,14 @@ export function validateRecipePayload(
 export function runRecipePayload(params: {
   recipe: RecipeDefinition;
   inputs: string[];
+  inputsByName?: Record<string, string[]>;
   projectId?: string;
   options?: Record<string, unknown>;
 }): Promise<{ job_id: string; run_id: string }> {
   return engineCall<{ job_id: string; run_id: string }>("pipeline.run", {
     recipe: params.recipe,
     inputs: params.inputs,
+    ...(params.inputsByName ? { inputs_by_name: params.inputsByName } : {}),
     ...(params.projectId ? { project_id: params.projectId } : {}),
     ...(params.options ? { options: params.options } : {}),
   });

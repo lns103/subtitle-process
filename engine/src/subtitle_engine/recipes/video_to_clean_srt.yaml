@@ -5,6 +5,7 @@ description: 提取内嵌字幕 → 清理 → SDH 扫描/人工审核 → 校�
 builtin: true
 inputs:
   - name: video
+    label: 视频文件
     kind: file
     accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"]
     required: true
@@ -53,4 +54,7 @@ steps:
 outputs:
   - from: export
     key: files
-ui: {}
+ui:
+  kind: workflow
+  group: 主流程
+  order: 10

@@ -58,6 +58,9 @@ pub struct Supervisor {
     stdin: Mutex<Option<ChildStdin>>,
     pending: Mutex<PendingMap>,
     next_id: AtomicU64,
+    /// 每次启动递增；用于识别旧进程的 stdout 关闭事件，避免手动重启被
+    /// “崩溃自动重启”链路再次杀掉新进程。
+    generation: AtomicU64,
     restarts: Mutex<VecDeque<Instant>>,
     shutting_down: AtomicBool,
     restart_lock: Mutex<()>,
@@ -72,6 +75,7 @@ impl Supervisor {
             stdin: Mutex::new(None),
             pending: Mutex::new(PendingMap(HashMap::new())),
             next_id: AtomicU64::new(1),
+            generation: AtomicU64::new(0),
             restarts: Mutex::new(VecDeque::new()),
             shutting_down: AtomicBool::new(false),
             restart_lock: Mutex::new(()),
@@ -155,6 +159,9 @@ impl Supervisor {
 
     pub async fn restart(self: &Arc<Self>) -> Result<(), String> {
         let _guard = self.restart_lock.lock().await;
+        // 先递增 generation：旧进程接下来产生的 stdout 关闭事件会被忽略，
+        // 不会在 restart_lock 释放后反过来重启刚拉起的新进程。
+        self.generation.fetch_add(1, Ordering::SeqCst);
         self.cleanup_process().await;
         self.restarts.lock().await.clear();
         self.shutting_down.store(false, Ordering::SeqCst);
@@ -210,6 +217,9 @@ impl Supervisor {
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
 
+        // 本次启动的代号；stdout 关闭时只有代号仍是最新的才允许触发自动重启。
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+
         let mut child = cmd
             .spawn()
             .map_err(|err| format!("无法启动引擎进程: {err}"))?;
@@ -221,7 +231,7 @@ impl Supervisor {
         *self.stdin.lock().await = stdin;
 
         if let Some(stdout) = stdout {
-            tokio::spawn(read_stdout(self.clone(), stdout));
+            tokio::spawn(read_stdout(self.clone(), stdout, generation));
         }
         if let Some(stderr) = stderr {
             tokio::spawn(read_stderr(self.clone(), stderr));
@@ -292,23 +302,34 @@ impl Supervisor {
         }
     }
 
-    /// stdout 关闭 = 进程退出（或崩溃）。
-    async fn on_stdout_closed(self: &Arc<Self>) {
-        if self.shutting_down.load(Ordering::SeqCst) {
+    /// stdout 关闭 = 进程退出（或崩溃）。只有当前 generation 的进程才允许
+    /// 触发重启；旧进程的关闭事件在主动重启/关机时必须被丢弃。
+    async fn on_stdout_closed(self: &Arc<Self>, generation: u64) {
+        if !should_restart(
+            self.shutting_down.load(Ordering::SeqCst),
+            self.generation.load(Ordering::SeqCst),
+            generation,
+        ) {
+            log::debug!("忽略旧引擎进程（generation {generation}）的退出事件");
             return;
         }
         log::warn!("引擎 stdout 已关闭，准备按策略重启");
         *self.stdin.lock().await = None;
         self.fail_pending("引擎意外退出").await;
         self.set_status(EngineStatus::Stopped).await;
-        self.schedule_restart().await;
+        self.schedule_restart(generation).await;
     }
 
-    async fn schedule_restart(self: &Arc<Self>) {
+    async fn schedule_restart(self: &Arc<Self>, generation: u64) {
         let this = self.clone();
         tokio::spawn(async move {
             let _guard = this.restart_lock.lock().await;
             if this.shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+            // 排队期间可能发生了手动重启；旧 generation 的自动重启必须放弃。
+            if this.generation.load(Ordering::SeqCst) != generation {
+                log::debug!("丢弃过期的自动重启任务（generation {generation}）");
                 return;
             }
             {
@@ -335,7 +356,9 @@ impl Supervisor {
             }
 
             tokio::time::sleep(RESTART_DELAY).await;
-            if this.shutting_down.load(Ordering::SeqCst) {
+            if this.shutting_down.load(Ordering::SeqCst)
+                || this.generation.load(Ordering::SeqCst) != generation
+            {
                 return;
             }
             this.cleanup_process().await;
@@ -347,7 +370,7 @@ impl Supervisor {
     }
 }
 
-async fn read_stdout(supervisor: Arc<Supervisor>, stdout: ChildStdout) {
+async fn read_stdout(supervisor: Arc<Supervisor>, stdout: ChildStdout, generation: u64) {
     let mut lines = BufReader::new(stdout).lines();
     loop {
         match lines.next_line().await {
@@ -359,7 +382,7 @@ async fn read_stdout(supervisor: Arc<Supervisor>, stdout: ChildStdout) {
             }
         }
     }
-    supervisor.on_stdout_closed().await;
+    supervisor.on_stdout_closed(generation).await;
 }
 
 async fn handle_stdout_line(supervisor: &Arc<Supervisor>, line: &str) {
@@ -463,6 +486,11 @@ pub fn default_request_timeout() -> Duration {
     Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS)
 }
 
+/// 退出事件是否属于当前引擎进程；主动重启/关机产生的旧事件必须忽略。
+fn should_restart(shutting_down: bool, current_generation: u64, event_generation: u64) -> bool {
+    !shutting_down && current_generation == event_generation
+}
+
 #[cfg(windows)]
 fn kill_process_tree(pid: u32) {
     use std::os::windows::process::CommandExt;
@@ -477,4 +505,25 @@ fn kill_process_tree(pid: u32) {
     let _ = std::process::Command::new("kill")
         .args(["-9", &pid.to_string()])
         .output();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_restart;
+
+    #[test]
+    fn stale_generation_never_restarts() {
+        // 手动重启前启动的进程（gen 3）在 gen 4 启动后才关闭，必须忽略。
+        assert!(!should_restart(false, 4, 3));
+    }
+
+    #[test]
+    fn current_generation_restarts_on_crash() {
+        assert!(should_restart(false, 4, 4));
+    }
+
+    #[test]
+    fn shutdown_never_restarts() {
+        assert!(!should_restart(true, 4, 4));
+    }
 }

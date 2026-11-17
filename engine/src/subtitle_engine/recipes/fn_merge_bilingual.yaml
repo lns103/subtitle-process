@@ -1,0 +1,45 @@
+id: fn_merge_bilingual
+name: 合并双语 ASS
+version: 1
+description: 把原版与译文字幕按时间轴合并为双行 ASS。
+builtin: true
+inputs:
+  - name: original
+    label: 原版字幕
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: merge
+        port: original
+  - name: translated
+    label: 译文字幕
+    kind: files
+    accept: [".srt"]
+    required: true
+    multiple: true
+    bind:
+      - step: merge
+        port: translated
+steps:
+  - id: merge
+    uses: sub.merge_bilingual
+    with:
+      style_preset: house_default
+      output_suffix: ".zh&en"
+  - id: export
+    uses: sub.export
+    needs: [merge]
+    with:
+      format: ass
+      suffix: ""
+      output_dir: ""
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: function
+  group: 字幕处理
+  order: 38

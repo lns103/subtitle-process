@@ -397,7 +397,11 @@ class MergeBilingual(Step):
     id = "sub.merge_bilingual"
     title = "合并双语 ASS"
     description = "把译文与原字幕按时间轴合并为双行 ASS（保留旧版重复片段字体对齐）。"
-    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    inputs: dict[str, PortSpec] = {
+        "subs": PortSpec(kind="srt", required=False, multiple=True),
+        "original": PortSpec(kind="srt", required=False, multiple=True),
+        "translated": PortSpec(kind="srt", required=False, multiple=True),
+    }
     outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="ass", multiple=True)}
     Options = MergeBilingualOptions
     requires_agent = False
@@ -405,9 +409,6 @@ class MergeBilingual(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: MergeBilingualOptions = ctx.options  # type: ignore[assignment]
-        artifacts: list[Artifact] = inputs.get("subs") or []
-        if not artifacts:
-            raise JsonRpcError(INVALID_PARAMS, "没有可合并的字幕", {"step": self.id})
         if options.style_preset != "house_default":
             raise JsonRpcError(
                 INVALID_PARAMS,
@@ -415,7 +416,28 @@ class MergeBilingual(Step):
                 {"step": self.id, "supported": ["house_default"]},
             )
 
-        pairs = self._group_pairs(artifacts, options)
+        # 只有命名输入绑定（meta.input_name）才视为显式原文；旧配方经
+        # match/validate 自动流入的产物仍走 _group_pairs 兼容路径。
+        originals: list[Artifact] = [
+            artifact
+            for artifact in inputs.get("original") or []
+            if (artifact.meta or {}).get("input_name") == "original"
+        ]
+        translated_candidates: list[Artifact] = (
+            inputs.get("translated") or inputs.get("subs") or []
+        )
+        translated: list[Artifact] = [
+            artifact
+            for artifact in translated_candidates
+            if (artifact.meta or {}).get("input_name") != "original"
+        ]
+        artifacts: list[Artifact] = list(translated_candidates)
+        if originals:
+            pairs = self._pair_explicit(originals, translated, options)
+        else:
+            if not artifacts:
+                raise JsonRpcError(INVALID_PARAMS, "没有可合并的字幕", {"step": self.id})
+            pairs = self._group_pairs(artifacts, options)
         results: list[Artifact] = []
         warnings: list[str] = []
 
@@ -474,6 +496,71 @@ class MergeBilingual(Step):
                 raise asyncio.CancelledError
 
         return {"subs": results}
+
+    @staticmethod
+    def _pair_explicit(
+        originals: list[Artifact],
+        translated: list[Artifact],
+        options: MergeBilingualOptions,
+    ) -> list[_Pair]:
+        """显式原文/译文输入：优先按干净 stem 配对，剩余按顺序配对。"""
+        if not translated:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                "提供了原文字幕但没有译文字幕",
+                {"step": "sub.merge_bilingual", "original_count": len(originals)},
+            )
+        if len(originals) != len(translated):
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                "原文与译文数量不一致，无法配对合并",
+                {
+                    "step": "sub.merge_bilingual",
+                    "original_count": len(originals),
+                    "translated_count": len(translated),
+                },
+            )
+
+        def base_of(artifact: Artifact) -> str:
+            source = str((artifact.meta or {}).get("source_path") or artifact.path)
+            return _base_stem(source, options.pattern) or artifact_stem(artifact)
+
+        translated_items = sorted(translated, key=lambda item: base_of(item).lower())
+        by_base: dict[str, list[Artifact]] = {}
+        for item in translated_items:
+            by_base.setdefault(base_of(item).lower(), []).append(item)
+
+        used: set[int] = set()
+        pairs: list[_Pair] = []
+        leftovers: list[Artifact] = []
+        for original in sorted(originals, key=lambda item: base_of(item).lower()):
+            bucket = by_base.get(base_of(original).lower(), [])
+            match = next(
+                (item for item in bucket if id(item) not in used),
+                None,
+            )
+            if match is None:
+                leftovers.append(original)
+                continue
+            used.add(id(match))
+            pairs.append(_Pair(original, match, base_of(match)))
+
+        remaining = [item for item in translated_items if id(item) not in used]
+        if len(remaining) != len(leftovers):
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                "原文与译文无法一一配对",
+                {
+                    "step": "sub.merge_bilingual",
+                    "unpaired_original": [base_of(item) for item in leftovers],
+                    "unpaired_translated": [base_of(item) for item in remaining],
+                },
+            )
+        for original, item in zip(leftovers, remaining, strict=True):
+            pairs.append(_Pair(original, item, base_of(item)))
+
+        pairs.sort(key=lambda pair: pair.base.lower())
+        return pairs
 
     @staticmethod
     def _group_pairs(artifacts: list[Artifact], options: MergeBilingualOptions) -> list[_Pair]:

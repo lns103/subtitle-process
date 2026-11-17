@@ -142,6 +142,70 @@ export interface ValidationResult {
   order: string[];
 }
 
+// ---- 首页任务目录（tasks.list）----------------------------------------
+
+export type TaskKind = "workflow" | "function";
+
+export interface TaskInputBinding {
+  step: string;
+  port: string;
+}
+
+export interface TaskInputSpec {
+  name: string;
+  label?: string;
+  kind: RecipeInputKind;
+  accept: string[];
+  required: boolean;
+  multiple?: boolean;
+  bind?: TaskInputBinding[];
+}
+
+export interface TaskSpec {
+  id: string;
+  recipe_id: string;
+  kind: TaskKind;
+  group: string;
+  order: number;
+  title: string;
+  description: string;
+  inputs: TaskInputSpec[];
+  requires_project: boolean;
+}
+
+/** ``files.scan`` 返回的单个文件。 */
+export interface ScannedFile {
+  path: string;
+  name: string;
+  extension: string;
+  size: number;
+}
+
+export interface FileScanResult {
+  files: ScannedFile[];
+}
+
+// ---- media.inspect -----------------------------------------------------
+
+export interface MediaSubtitleTrack {
+  index: number;
+  language: string;
+  title: string;
+  codec_name?: string;
+  default: boolean;
+  forced: boolean;
+  hearing_impaired: boolean;
+}
+
+export interface MediaInfo {
+  source_path?: string;
+  duration: number;
+  audio_langs: Record<string, number>;
+  default_audio_lang?: string | null;
+  subtitles: MediaSubtitleTrack[];
+  warnings: string[];
+}
+
 // ---- M5 人工审核（HITL）---------------------------------------------
 
 export type ReviewRecordStatus = "pending" | "submitted";

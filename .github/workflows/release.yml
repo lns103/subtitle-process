@@ -91,10 +91,19 @@ jobs:
 
       - name: Build Tauri bundle
         working-directory: apps/desktop
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build
+        run: |
+          $version = (Get-Content -LiteralPath "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ($version -match '(?i)(alpha|beta|rc)') {
+            Write-Host "Pre-release $version: building NSIS only (WiX/MSI requires numeric prerelease)."
+            npm run tauri build -- --bundles nsis
+          }
+          else {
+            npm run tauri build
+          }
 
       - name: Upload installers
         uses: actions/upload-artifact@v7

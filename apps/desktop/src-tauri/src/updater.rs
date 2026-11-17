@@ -4,7 +4,7 @@
 //! 失败原样返回给前端展示（不静默吞异常）。
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
 /// 检查结果，序列化给前端（camelCase，便于 React 侧直接使用）。

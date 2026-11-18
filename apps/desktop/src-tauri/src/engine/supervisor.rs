@@ -432,27 +432,64 @@ async fn read_stderr(supervisor: Arc<Supervisor>, stderr: tokio::process::ChildS
     }
 }
 
+/// 引擎来源，按优先级解析：显式覆盖 > 发布版同目录 sidecar > 开发模式 uv。
+#[derive(Debug, PartialEq)]
+enum EngineSource {
+    Explicit,
+    Sidecar,
+    Uv,
+}
+
+/// debug 构建刻意跳过同目录 sidecar：开发时用 `uv` 启动更快，也避免
+/// `target/debug/` 里遗留的旧 sidecar（例如 PyInstaller onedir 缺少 `_internal/`）
+/// 挡住正常启动。需要连 sidecar 调试时用 `SUBTITLE_ENGINE_BIN` 显式指定即可。
+fn pick_engine_source(explicit: bool, debug_build: bool, sidecar_present: bool) -> EngineSource {
+    if explicit {
+        EngineSource::Explicit
+    } else if !debug_build && sidecar_present {
+        EngineSource::Sidecar
+    } else {
+        EngineSource::Uv
+    }
+}
+
 fn build_engine_command() -> Result<Command, String> {
-    // 1) 显式覆盖（测试 / 自定义路径）
-    if let Ok(explicit) = env::var("SUBTITLE_ENGINE_BIN") {
-        let mut cmd = Command::new(explicit);
-        cmd.args(["--rpc", "stdio"]);
-        return Ok(cmd);
+    let explicit = env::var("SUBTITLE_ENGINE_BIN").ok();
+    let sidecar = sibling_sidecar();
+    if cfg!(debug_assertions) && sidecar.is_some() {
+        log::debug!(
+            "开发模式忽略 target/debug/subtitle-engine.exe，改用 uv；如需连 sidecar 请设置 SUBTITLE_ENGINE_BIN"
+        );
     }
-
-    // 2) 打包后：与主程序同目录的 sidecar
-    if let Ok(exe) = env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let candidate = dir.join("subtitle-engine.exe");
-        if candidate.exists() {
-            let mut cmd = Command::new(candidate);
+    match pick_engine_source(
+        explicit.is_some(),
+        cfg!(debug_assertions),
+        sidecar.is_some(),
+    ) {
+        // 1) 显式覆盖（测试 / 自定义路径）
+        EngineSource::Explicit => {
+            let mut cmd = Command::new(explicit.expect("explicit path checked above"));
             cmd.args(["--rpc", "stdio"]);
-            return Ok(cmd);
+            Ok(cmd)
         }
+        // 2) 打包后：与主程序同目录的 sidecar
+        EngineSource::Sidecar => {
+            let mut cmd = Command::new(sidecar.expect("sidecar path checked above"));
+            cmd.args(["--rpc", "stdio"]);
+            Ok(cmd)
+        }
+        // 3) 开发模式：uv run python -m subtitle_engine --rpc stdio
+        EngineSource::Uv => build_uv_command(),
     }
+}
 
-    // 3) 开发模式：uv run python -m subtitle_engine --rpc stdio
+fn sibling_sidecar() -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    let candidate = exe.parent()?.join("subtitle-engine.exe");
+    candidate.exists().then_some(candidate)
+}
+
+fn build_uv_command() -> Result<Command, String> {
     let engine_dir = find_engine_dir()
         .ok_or_else(|| "找不到 engine/ 目录，且没有可用的 sidecar 二进制".to_string())?;
     let uv = env::var("SUBTITLE_UV").unwrap_or_else(|_| "uv".to_string());
@@ -509,7 +546,35 @@ fn kill_process_tree(pid: u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::should_restart;
+    use super::{pick_engine_source, should_restart, EngineSource};
+
+    #[test]
+    fn explicit_engine_bin_wins_everywhere() {
+        assert_eq!(
+            pick_engine_source(true, false, true),
+            EngineSource::Explicit
+        );
+        assert_eq!(pick_engine_source(true, true, false), EngineSource::Explicit);
+    }
+
+    #[test]
+    fn debug_build_ignores_sibling_sidecar() {
+        // Tauri 不复制 `_internal`，target/debug 里的 onedir sidecar 无法启动。
+        assert_eq!(pick_engine_source(false, true, true), EngineSource::Uv);
+    }
+
+    #[test]
+    fn release_build_prefers_sibling_sidecar() {
+        assert_eq!(
+            pick_engine_source(false, false, true),
+            EngineSource::Sidecar
+        );
+    }
+
+    #[test]
+    fn release_without_sidecar_falls_back_to_uv() {
+        assert_eq!(pick_engine_source(false, false, false), EngineSource::Uv);
+    }
 
     #[test]
     fn stale_generation_never_restarts() {

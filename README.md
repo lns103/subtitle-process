@@ -92,10 +92,13 @@ npm run tauri dev                         # 开发模式（自动用 uv 拉起�
 ```
 
 开发模式优先使用 `uv run python -m subtitle_engine --rpc stdio`，无需每次打包 sidecar。
+`target/debug/` 同目录下的 `subtitle-engine.exe` 在 dev 构建中会被忽略（避免旧产物
+干扰、也省去每次重打包）；确需在 dev 中联调 sidecar 时，设置 `SUBTITLE_ENGINE_BIN`
+指向完整可执行文件。
 
 ## 打包与发布
 
-1. 构建 sidecar（Nuitka onefile，失败自动回退 PyInstaller onedir）：
+1. 构建 sidecar（Nuitka onefile，失败自动回退 PyInstaller onefile）：
 
    ```powershell
    .\scripts\build-engine.ps1

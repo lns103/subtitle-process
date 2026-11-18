@@ -1174,14 +1174,15 @@ uv run nuitka --onefile --assume-yes-for-downloads \
   src/subtitle_engine/__main__.py
 ```
 
-若出现启动慢/杀软误报，回退：
+若 Nuitka 不可用（或加 `-Fallback`），回退到 PyInstaller onefile：
 
 ```bash
-uv run pyinstaller --onedir --noconsole --name subtitle-engine \
+uv run pyinstaller --onefile --noconsole --name subtitle-engine \
   src/subtitle_engine/__main__.py
 ```
 
-回退方案下，sidecar 作为 `bundle.resources` 打包，Rust 用 `resource_dir()` 拼路径启动。
+两种方案都产出单个自包含可执行文件，直接作为 `bundle.externalBin` 打包；不要使用
+onedir，Tauri 只复制 sidecar 文件本身，`_internal/` 不会跟随。
 
 ### 16.2 发布检查
 
@@ -1364,7 +1365,7 @@ Rust 注册 single-instance（最先）、updater、store。实现说明：本�
 
 | 风险 | 对策 |
 |---|---|
-| Python 打包体积/启动/杀软 | Nuitka onefile 优先，失败回退 onedir；签名；延迟加载 |
+| Python 打包体积/启动/杀软 | Nuitka onefile 优先，失败回退 PyInstaller onefile；签名；延迟加载 |
 | stdout 被 print 污染 | 禁用业务层 print；日志统一 stderr；协议层加断言 |
 | Agent 误删字幕 | 默认不自动应用、置信度阈值、删除比例保护、审计可撤销 |
 | 翻译文件匹配错误 | 双因子匹配，低置信度必须人工选 |

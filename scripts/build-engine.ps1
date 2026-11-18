@@ -5,14 +5,17 @@
 
 .DESCRIPTION
     Primary toolchain: Nuitka onefile.
-    Fallback toolchain: PyInstaller onedir (also used when -Fallback is set).
+    Fallback toolchain: PyInstaller onefile (also used when -Fallback is set).
+
+    Both toolchains produce a single self-contained executable so that Tauri's
+    `bundle.externalBin` (which ships only the sidecar file) is enough at runtime.
 
     The produced executable is copied to:
         apps/desktop/src-tauri/binaries/subtitle-engine-<target-triple>[.exe]
     which is exactly what `bundle.externalBin` in tauri.conf.json expects.
 
 .PARAMETER Fallback
-    Skip Nuitka and build with PyInstaller onedir directly.
+    Skip Nuitka and build with PyInstaller onefile directly.
 
 .PARAMETER TargetTriple
     Override the Rust target triple. Defaults to the `host:` line of `rustc -vV`,
@@ -205,7 +208,7 @@ try {
         }
         catch {
             Write-Warning "Nuitka build failed: $($_.Exception.Message)"
-            Write-Warning "Falling back to PyInstaller onedir."
+            Write-Warning "Falling back to PyInstaller onefile."
         }
     }
     else {
@@ -213,7 +216,7 @@ try {
     }
 
     if (-not $built) {
-        Write-Step "Building with PyInstaller (onedir)"
+        Write-Step "Building with PyInstaller (onefile)"
         $pyinstallerInEnv = Test-UvModule -Module "PyInstaller"
         $pyiArgs = @("run")
         if (-not $pyinstallerInEnv) {
@@ -224,12 +227,14 @@ try {
 
         # __main__.py uses relative imports, so a tiny absolute-import launcher is
         # required for PyInstaller (it does not treat the script as a package member).
+        # --onefile keeps the sidecar self-contained: Tauri's `externalBin` copies a
+        # single file, so an onedir build would lose its `_internal/` payload.
         $pyiArgs += @(
             "python",
             "-m",
             "PyInstaller",
             "--noconfirm",
-            "--onedir",
+            "--onefile",
             "--noconsole",
             "--name", "subtitle-engine",
             "--distpath", $PyiDist,
@@ -243,28 +248,23 @@ try {
 
         Invoke-Native -FilePath "uv" -Arguments $pyiArgs -WorkingDirectory $EngineDir
 
-        $pyiAppDir = Join-Path $PyiDist "subtitle-engine"
-        $pyiBinary = Join-Path $pyiAppDir ("subtitle-engine" + $extension)
+        # onefile puts the executable directly in distpath (no app directory).
+        $pyiBinary = Join-Path $PyiDist ("subtitle-engine" + $extension)
         if (-not (Test-Path $pyiBinary)) {
             throw "PyInstaller finished but the expected binary is missing: $pyiBinary"
         }
         Copy-Item -LiteralPath $pyiBinary -Destination $destPath -Force
 
-        # onedir bundles need their sibling data directory. Tauri only ships the
-        # sidecar file itself, so this layout is for local dev only.
-        $pyiInternal = Join-Path $pyiAppDir "_internal"
-        if (Test-Path $pyiInternal) {
-            $destInternal = Join-Path $BinDir "_internal"
-            if (Test-Path $destInternal) {
-                Remove-Item -LiteralPath $destInternal -Recurse -Force
-            }
-            Copy-Item -LiteralPath $pyiInternal -Destination $destInternal -Recurse -Force
-            Write-Warning "PyInstaller onedir also copied '_internal' to $destInternal."
-            Write-Warning "Only onefile builds are safe to ship with bundle.externalBin; prefer Nuitka for releases."
+        # Remove the stale `_internal/` left by older onedir builds; it is not
+        # needed by onefile and only confuses the sidecar layout.
+        $staleInternal = Join-Path $BinDir "_internal"
+        if (Test-Path $staleInternal) {
+            Remove-Item -LiteralPath $staleInternal -Recurse -Force
+            Write-Host "    removed stale '_internal' directory from $BinDir"
         }
 
         $built = $true
-        $mode = "pyinstaller onedir"
+        $mode = "pyinstaller onefile"
     }
 
     Write-Step "Verifying sidecar"

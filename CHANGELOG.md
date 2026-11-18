@@ -18,13 +18,15 @@
 - **默认模型**：Agent 默认模型改为 `deepseek-flash`（前端默认值与占位符同步）。
 
 #### 修复
+- **开发模式引擎启动**：`npm run tauri dev` 不再优先使用 `target/debug/subtitle-engine.exe`，改为按文档优先 `uv run`；此前若 `binaries/` 里是 PyInstaller onedir 产物，Tauri 只复制 exe、不复制 `_internal/`，会弹出 “Failed to load Python DLL” 并让 `engine.hello` 握手超时。需要在 dev 中联调 sidecar 时用 `SUBTITLE_ENGINE_BIN` 覆盖。
+- **sidecar 打包**：`scripts/build-engine.ps1` 的回退链从 PyInstaller onedir 改为 onefile，与 `bundle.externalBin` 只复制单文件的行为一致，并清理旧的 `binaries/_internal`。
 - **重启死循环**：引擎 supervisor 为每次启动分配 generation；手动重启/关机产生的旧进程 stdout 关闭事件会被丢弃，排队中的自动重启也会失效，修复“点一次重启后持续重启”的竞态。
 - **重启按钮**：引擎处于 `starting` 时禁用，并增加本地 busy 状态防止连点。
 
 #### 测试
 - 引擎 `242 passed, 1 skipped`，`ruff check` 通过；新增命名输入、任务目录、显式双语合并、`media.inspect`、`files.scan`、默认模型、CLI 命名输入参数等用例。
 - 前端 `110 passed`，`tsc --noEmit` 与 `vite build` 通过；新增任务目录/输入槽/通用分发/拖动改槽/自动填充用例。
-- Rust `cargo test --lib` 10 个用例通过（含 3 个重启 generation 回归测试）。
+- Rust `cargo test --lib` 14 个用例通过（含 3 个重启 generation 回归测试与 4 个引擎来源优先级用例）。
 - 追加 RPC 冒烟：`tasks.list`、双语双输入生成 ASS、`fn_normalize` / `fn_merge_bilingual` / `fn_rename` 均通过。
 
 ### 批量处理、连接测试与项目删除

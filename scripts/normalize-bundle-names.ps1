@@ -7,7 +7,7 @@
     GitHub release assets strip non-ASCII characters from filenames (for example
     `字幕工具箱_1.0.0-alpha2_x64-setup.exe` becomes `_1.0.0-alpha2_x64-setup.exe`).
     Tauri names the NSIS installer after `productName`, so this script renames the
-    generated installer to `SubtitleProcess_<version>_<arch>-setup.exe`.
+    generated installer to `subtitle-process_<version>_<arch>-setup.exe`.
 
     Portable ZIPs are already produced with an ASCII name by
     `scripts/package-portable.ps1`.
@@ -40,7 +40,7 @@ if ($installers.Count -eq 0) {
     throw "No NSIS installer found in $NsisDir"
 }
 
-$target = Join-Path $NsisDir "SubtitleProcess_${Version}_x64-setup.exe"
+$target = Join-Path $NsisDir "subtitle-process_${Version}_x64-setup.exe"
 foreach ($installer in $installers) {
     if ($installer.FullName -eq $target) {
         continue

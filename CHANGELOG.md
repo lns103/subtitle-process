@@ -80,7 +80,7 @@
 
 - 桌面应用版本号提升至 **`1.0.0-alpha2`**：Tauri、前端与 Rust 配置保持同步；Python 引擎版本仍为 `0.1.0`。
 - 同步 `package-lock.json`，补齐缺失的 Tauri 插件条目，恢复 `npm ci` 可复现安装。
-- 打包新增免安装 ZIP（`scripts/package-portable.ps1`）；CI 在检查全部通过后自动构建并上传 NSIS 安装包与 portable ZIP，Release 同样附带该 ZIP。产物文件名统一使用 ASCII（`SubtitleProcess_<version>_x64-setup.exe`、`subtitle-process_<version>_x64-portable.zip`），避免 GitHub Release 过滤中文字符。
+- 打包新增免安装 ZIP（`scripts/package-portable.ps1`）；CI 在检查全部通过后自动构建并上传 NSIS 安装包与 portable ZIP，Release 同样附带该 ZIP。产物文件名统一使用 ASCII（`subtitle-process_<version>_x64-setup.exe`、`subtitle-process_<version>_x64-portable.zip`），避免 GitHub Release 过滤中文字符。
 
 ### 主线清理与持续集成
 

@@ -135,7 +135,15 @@ function VideoToCleanSrt({ paths, videoPath, engineReady }: VideoToCleanSrtProps
 }
 
 export function RunView({ paths, engineReady }: RunViewProps) {
-  const { active, projects, loading, select } = useProjectStore();
+  const {
+    active,
+    projects,
+    loading,
+    deletingId,
+    lastError: projectError,
+    select,
+    remove,
+  } = useProjectStore();
   const { status, runId } = useRunStore();
 
   const videoPath = useMemo(() => paths.find(isVideoPath) ?? null, [paths]);
@@ -162,15 +170,30 @@ export function RunView({ paths, engineReady }: RunViewProps) {
           <VideoToCleanSrt paths={paths} videoPath={videoPath} engineReady={engineReady} />
         )}
 
-        {active && <HandoffCard project={active} />}
+        {active && (
+          <HandoffCard
+            project={active}
+            onClose={() => useProjectStore.getState().clearActive()}
+          />
+        )}
       </div>
 
       <ProjectList
         projects={projects}
         activeId={active?.id}
         loading={loading}
+        deletingId={deletingId}
+        onDelete={(id) => void remove(id)}
         onSelect={(id) => void select(id)}
       />
+      {projectError && (
+        <p
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+        >
+          项目操作失败：{projectError}
+        </p>
+      )}
     </div>
   );
 }

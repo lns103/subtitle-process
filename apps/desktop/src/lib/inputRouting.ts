@@ -202,6 +202,10 @@ export function routePaths(
 
     const available = preferred.filter((input) => {
       if (overwrite) return true;
+      // 可多值槽位：仅当本次投放前为空时整批追加，避免静默覆盖已有内容。
+      if (input.multiple === true || input.kind === "files") {
+        return (currentSlots[input.name] ?? []).length === 0;
+      }
       return slotsOf(input).length === 0;
     });
 

@@ -20,12 +20,15 @@ import {
   scanFiles,
 } from "../../lib/api";
 import { onEngineEvent } from "../../lib/events";
+import { fileName } from "../../lib/inputRouting";
 import { subtitleBaseName } from "../../lib/flow2";
 import type { RecipeDefinition, StepSpec, TaskSpec } from "../../lib/models";
 import { navigate } from "../../lib/router";
 import { restartEngine, type EngineStatus } from "../../lib/rpc";
 import { pickOriginalSubtitle, taskInputLabel } from "../../lib/tasks";
 import { getAppVersion } from "../../lib/version";
+import { runVideoBatch } from "../../lib/videoBatch";
+import { useBatchStore } from "../../stores/batchStore";
 import { useProjectStore } from "../../stores/projectStore";
 import { useRunStore } from "../../stores/runStore";
 import { useTaskStore, type TrackSelection } from "../../stores/taskStore";
@@ -102,7 +105,16 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
   const allTracks = useTaskStore((state) => state.tracks);
   const allRouting = useTaskStore((state) => state.lastRouting);
 
-  const { projects, active, loading: projectsLoading, select, refresh } = useProjectStore();
+  const {
+    projects,
+    active,
+    loading: projectsLoading,
+    deletingId: deletingProjectId,
+    lastError: projectError,
+    select,
+    remove: removeProject,
+    refresh,
+  } = useProjectStore();
   const preferredProjectId = useProjectStore((state) => state.preferredProjectId);
   const { runId, status, progress, logs, lastError, begin, reset } = useRunStore();
 
@@ -138,10 +150,17 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
   const bilingual = isBilingualTask(task);
   const extraction = isExtractionRecipe(task);
   const engineReady = engineStatus.state === "ready";
-  const running = status === "running";
+  const batchTaskId = useBatchStore((state) => state.taskId);
+  const allBatchItems = useBatchStore((state) => state.items);
+  const batchActive = useBatchStore((state) => state.active);
+  const running = status === "running" || batchActive;
 
   const videoInput = task?.inputs.find((input) => input.name === "video") ?? null;
-  const videoPath = videoInput ? (slots[videoInput.name]?.[0] ?? null) : null;
+  const videoPaths = videoInput ? (slots[videoInput.name] ?? []) : [];
+  const videoPath = videoPaths[0] ?? null;
+  const batchMode = extraction && videoPaths.length > 1;
+  const batchItems =
+    task && batchTaskId === task.id ? allBatchItems : [];
 
   useEffect(() => {
     void useTaskStore.getState().load();
@@ -285,6 +304,14 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     navigate({ name: "task", taskId: next.id });
   }, []);
 
+  const handleDeleteProject = useCallback(
+    async (id: string) => {
+      await removeProject(id);
+      if (targetProjectId === id) setTargetProjectId(null);
+    },
+    [removeProject, targetProjectId],
+  );
+
   const handleSetSlot = useCallback((taskId: string, inputName: string, paths: string[]) => {
     useTaskStore.getState().setSlot(taskId, inputName, paths);
   }, []);
@@ -386,6 +413,9 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     setOutputError(null);
     setCopiedPath(null);
     handledRunRef.current = null;
+    setStartedRunId(null);
+    startedExtractionRef.current = false;
+    if (!batchMode) useBatchStore.getState().reset();
 
     if (missingInputs.length > 0) {
       useRunStore.setState({
@@ -421,24 +451,68 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
         }),
       };
 
+      // 视频槽也可能收到文件夹（例如“选择文件夹”按钮）；运行时统一展开成文件。
+      let runVideoPaths = videoPaths;
+      if (extraction && videoPaths.length > 0) {
+        try {
+          const scanned = await scanFiles({
+            paths: videoPaths,
+            accept: videoInput?.accept ?? [],
+          });
+          if (scanned.files.length > 0) {
+            runVideoPaths = scanned.files.map((file) => file.path);
+          } else {
+            useRunStore.setState({
+              status: "failed",
+              lastError: "所选文件夹中没有匹配的视频文件。",
+            });
+            return;
+          }
+        } catch (error) {
+          useRunStore.setState({
+            status: "failed",
+            lastError: `读取视频输入失败：${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+          return;
+        }
+      }
+
+      if (extraction && runVideoPaths.length > 1) {
+        await runVideoBatch({
+          taskId: task.id,
+          recipe: nextRecipe,
+          paths: runVideoPaths,
+          autoFillOriginal: true,
+        });
+        return;
+      }
+
+      const singleVideoPath = extraction
+        ? (runVideoPaths[0] ?? videoPath)
+        : videoPath;
+      const runSlots: Record<string, string[]> =
+        extraction ? { ...slots, video: runVideoPaths } : slots;
+
       const inputsByName: Record<string, string[]> = {};
       const legacy: string[] = [];
       for (const input of task.inputs) {
-        const values = slots[input.name] ?? [];
+        const values = runSlots[input.name] ?? [];
         if (values.length > 0) inputsByName[input.name] = values;
         for (const path of values) if (!legacy.includes(path)) legacy.push(path);
       }
 
       let projectId: string | undefined;
-      if (extraction && videoPath) {
+      if (extraction && singleVideoPath) {
         const existing = useProjectStore
           .getState()
-          .projects.find((project) => project.media_path === videoPath);
+          .projects.find((project) => project.media_path === singleVideoPath);
         if (existing) {
           projectId = existing.id;
           setTargetProjectId(existing.id);
         } else {
-          const project = await createProject({ media_path: videoPath });
+          const project = await createProject({ media_path: singleVideoPath });
           useProjectStore.getState().applyUpdate(project);
           projectId = project.id;
           setTargetProjectId(project.id);
@@ -491,6 +565,7 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     }
   }, [
     active,
+    batchMode,
     bilingual,
     extraction,
     missingInputs,
@@ -502,7 +577,9 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     task,
     trackSelection,
     tracksInvalid,
+    videoInput,
     videoPath,
+    videoPaths,
   ]);
 
   const handleCopy = useCallback(async (path: string) => {
@@ -531,6 +608,8 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
 
   const badge = engineBadge(engineStatus);
   const latestOutput = displayOutputs[displayOutputs.length - 1] ?? null;
+  const batchDone = batchItems.filter((item) => item.status === "done").length;
+  const batchFailed = batchItems.filter((item) => item.status === "failed").length;
 
   return (
     <div className="min-h-screen bg-slate-100 px-5 py-6 text-slate-900">
@@ -631,7 +710,15 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                     ) : (
                       <Play className="h-4 w-4" />
                     )}
-                    {running ? "运行中…" : "开始运行"}
+                    {batchActive
+                      ? batchItems.length > 0
+                        ? `批量处理中 · ${batchDone}/${batchItems.length}`
+                        : "其他任务批量处理中…"
+                      : running
+                        ? "运行中…"
+                        : batchMode || batchItems.length > 1
+                          ? `批量处理 ${Math.max(videoPaths.length, batchItems.length)} 个视频`
+                          : "开始运行"}
                   </button>
                 </div>
 
@@ -708,6 +795,95 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                   onReset={reset}
                 />
 
+                {batchItems.length > 0 && (
+                  <div
+                    data-testid="batch-queue"
+                    className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-slate-700">
+                        批量队列 · 完成 {batchDone}/{batchItems.length}
+                        {batchFailed > 0 && (
+                          <span className="text-rose-600"> · 失败 {batchFailed}</span>
+                        )}
+                      </p>
+                      {batchActive ? (
+                        <button
+                          type="button"
+                          onClick={() => useBatchStore.getState().finish()}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                        >
+                          取消批量（当前视频完成后停止）
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => useBatchStore.getState().reset()}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                        >
+                          清除队列
+                        </button>
+                      )}
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      {batchItems.map((item, index) => (
+                        <li
+                          key={`${item.path}:${index}`}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-xs"
+                        >
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {item.status === "running" || item.status === "waiting_review" ? (
+                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-600" />
+                            ) : item.status === "done" ? (
+                              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                            ) : item.status === "failed" ? (
+                              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-rose-600" />
+                            ) : (
+                              <span className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300" />
+                            )}
+                            <span className="truncate font-mono text-slate-700" title={item.path}>
+                              {index + 1}. {fileName(item.path)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {item.error && (
+                              <span className="max-w-[18rem] truncate text-rose-600" title={item.error}>
+                                {item.error}
+                              </span>
+                            )}
+                            {item.status === "done" && (
+                              <span className="text-emerald-700">
+                                {item.outputs.length > 0 ? `${item.outputs.length} 个产物` : "完成"}
+                              </span>
+                            )}
+                            {item.status === "waiting_review" && item.runId && (
+                              <button
+                                type="button"
+                                onClick={() => navigate({ name: "review", runId: item.runId! })}
+                                className="rounded bg-amber-600 px-2 py-0.5 text-[11px] text-white hover:bg-amber-500"
+                              >
+                                前往审核
+                              </button>
+                            )}
+                            {item.status === "pending" && (
+                              <span className="text-slate-400">排队中</span>
+                            )}
+                            {item.status === "running" && (
+                              <span className="text-sky-700">运行中</span>
+                            )}
+                            {item.status === "waiting_review" && (
+                              <span className="text-amber-700">等待审核</span>
+                            )}
+                            {item.status === "failed" && (
+                              <span className="text-rose-700">失败</span>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {status === "waiting_review" && runId && (
                   <button
                     type="button"
@@ -718,7 +894,7 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                   </button>
                 )}
 
-                {status === "done" && (
+                {status === "done" && batchItems.length === 0 && (
                   <div
                     data-testid="task-outputs"
                     className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3"
@@ -765,7 +941,15 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                 )}
               </section>
 
-              {active && <HandoffCard project={active} />}
+              {active && (
+                <HandoffCard
+                  project={active}
+                  onClose={() => {
+                    useProjectStore.getState().clearActive();
+                    setTargetProjectId(null);
+                  }}
+                />
+              )}
             </div>
 
             <div className="space-y-5">
@@ -773,11 +957,21 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                 projects={projects}
                 activeId={active?.id}
                 loading={projectsLoading}
+                deletingId={deletingProjectId}
+                onDelete={(id) => void handleDeleteProject(id)}
                 onSelect={(id) => {
                   setTargetProjectId(id);
                   void select(id);
                 }}
               />
+              {projectError && (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                >
+                  项目操作失败：{projectError}
+                </p>
+              )}
             </div>
           </div>
         )}

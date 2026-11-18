@@ -243,6 +243,39 @@ def test_agent_client_falls_back_to_json_object() -> None:
     assert model == "mock-1"
 
 
+def test_agent_ping_accepts_empty_content() -> None:
+    import asyncio
+
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "mock-reasoner",
+                # 推理模型可能把 token 花在 reasoning 上，content 为空。
+                "choices": [
+                    {
+                        "message": {"content": "", "reasoning_content": "..."},
+                        "finish_reason": "length",
+                    }
+                ],
+            },
+        )
+
+    client = AgentClient(
+        AgentConfig(base_url="https://example.test/v1", model="mock"),
+        "sk-test",
+        transport=httpx.MockTransport(handler),
+    )
+    latency_ms, model = asyncio.run(client.ping())
+
+    assert latency_ms >= 0
+    assert model == "mock-reasoner"
+    assert bodies[0]["max_tokens"] == 128
+
+
 async def test_missing_key_returns_1005(tmp_path: Path) -> None:
     messages: list[dict[str, Any]] = []
     server = _server(tmp_path, make_handler(), key=None)

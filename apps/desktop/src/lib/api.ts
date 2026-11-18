@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { engineCall } from "./rpc";
 import type {
   AgentTestResult,
@@ -66,8 +67,10 @@ export function runRecipe(params: {
   });
 }
 
-export function revealPath(path: string): Promise<string> {
-  return engineCall<string>("artifact.reveal", { path });
+export async function revealPath(path: string): Promise<string> {
+  // 走 Tauri 端 `tauri-plugin-opener`：能正确处理含空格/中文的路径。
+  await invoke("reveal_path", { path });
+  return "ok";
 }
 
 // ---- 首页任务目录与媒体检查 --------------------------------------------
@@ -141,6 +144,11 @@ export function runRecipePayload(params: {
 
 export function cancelJob(jobId: string): Promise<string> {
   return engineCall<string>("job.cancel", { job_id: jobId });
+}
+
+/** 查询 run 状态（用于事件丢失时的批量队列兜底）。 */
+export function getJobStatus(jobId: string): Promise<{ id: string; status: string }> {
+  return engineCall<{ id: string; status: string }>("job.status", { job_id: jobId });
 }
 
 // ---- M5 人工审核 -------------------------------------------------------

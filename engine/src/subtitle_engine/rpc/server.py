@@ -869,12 +869,18 @@ def _reveal_path(path: str) -> None:
     try:
         if os.name == "nt":
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            args = (
-                ["explorer.exe", f"/select,{target}"]
+            # explorer.exe 只按单个命令行字符串解析参数：路径含空格时必须写成
+            # `/select,"C:\dir with space\file.srt"`。若把 `/select,<path>` 作为
+            # 列表参数交给 subprocess，Python 会给整个参数加引号，变成
+            # `"/select,C:\dir with space\file.srt"`，explorer 无法识别 /select，
+            # 转而打开默认目录。
+            target_str = os.fspath(target)
+            command = (
+                f'explorer.exe /select,"{target_str}"'
                 if target.is_file()
-                else ["explorer.exe", str(target)]
+                else f'explorer.exe "{target_str}"'
             )
-            subprocess.Popen(args, creationflags=flags)  # noqa: S603
+            subprocess.Popen(command, creationflags=flags)  # noqa: S603
         elif sys.platform == "darwin":
             args = ["open", "-R", str(target)] if target.is_file() else ["open", str(target)]
             subprocess.Popen(args)  # noqa: S603

@@ -193,15 +193,23 @@ class AgentClient:
         raise last_error or AgentRequestError("Agent 请求失败")
 
     @staticmethod
-    def _extract_content(data: dict[str, Any]) -> tuple[str, str]:
+    def _extract_choices(data: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        """校验响应含 choices；返回首个 choice 与模型名（不要求正文）。"""
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             raise AgentRequestError("Agent 响应缺少 choices")
-        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        first = choices[0] if isinstance(choices[0], dict) else None
+        if first is None:
+            raise AgentRequestError("Agent 响应缺少 choices")
+        return first, str(data.get("model") or "")
+
+    @classmethod
+    def _extract_content(cls, data: dict[str, Any]) -> tuple[str, str]:
+        first, model = cls._extract_choices(data)
+        message = first.get("message")
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
             raise AgentRequestError("Agent 响应缺少文本内容")
-        model = str(data.get("model") or "")
         return content, model
 
     async def complete_json(
@@ -234,16 +242,20 @@ class AgentClient:
         )
 
     async def ping(self) -> tuple[int, str]:
-        """最小连通性测试，返回 ``(latency_ms, model)``。"""
+        """最小连通性测试，返回 ``(latency_ms, model)``。
+
+        只要求端点返回合法的 ``choices``：推理型模型或兼容端点可能在
+        ``max_tokens`` 较小时返回空 ``content``，这不代表连接失败。
+        """
         started = time.perf_counter()
         payload: dict[str, Any] = {
             "model": self._config.model,
             "temperature": 0,
-            "max_tokens": 1,
+            "max_tokens": 128,
             "messages": [{"role": "user", "content": "ping"}],
         }
         data = await self._post(payload, timeout=min(self._config.timeout_s, 30.0))
-        _content, model = self._extract_content(data)
+        _choice, model = self._extract_choices(data)
         latency = int((time.perf_counter() - started) * 1000)
         return latency, model or self._config.model
 

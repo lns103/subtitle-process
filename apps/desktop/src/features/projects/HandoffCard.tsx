@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ArrowRight, Check, Clipboard, FileCheck2, FolderOpen, Languages, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Clipboard, FileCheck2, FolderOpen, Languages, ShieldCheck, X } from "lucide-react";
 import { revealPath } from "../../lib/api";
 import type { Project } from "../../lib/models";
 import { navigate } from "../../lib/router";
@@ -9,6 +9,8 @@ import { useTaskStore } from "../../stores/taskStore";
 
 interface HandoffCardProps {
   project: Project;
+  /** 关闭当前项目面板；不会删除项目数据。 */
+  onClose?: () => void;
 }
 
 const STATUS_TEXT: Record<Project["status"], string> = {
@@ -20,7 +22,7 @@ const STATUS_TEXT: Record<Project["status"], string> = {
   failed: "失败",
 };
 
-export function HandoffCard({ project }: HandoffCardProps) {
+export function HandoffCard({ project, onClose }: HandoffCardProps) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,9 +75,23 @@ export function HandoffCard({ project }: HandoffCardProps) {
               : `项目状态：${STATUS_TEXT[project.status]}`}
           </p>
         </div>
-        <span className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs text-emerald-700">
-          {STATUS_TEXT[project.status]}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs text-emerald-700">
+            {STATUS_TEXT[project.status]}
+          </span>
+          {onClose && (
+            <button
+              type="button"
+              aria-label="关闭当前项目"
+              title="关闭项目面板（不会删除项目）"
+              data-testid="close-project"
+              onClick={onClose}
+              className="rounded-full p-1.5 text-emerald-700 transition hover:bg-emerald-100 hover:text-emerald-900"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {latest ? (

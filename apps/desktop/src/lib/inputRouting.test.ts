@@ -111,6 +111,33 @@ describe("inputRouting", () => {
     expect(result.unassigned[0]?.path).toBe("C:/show/EP01.srt");
   });
 
+  it("多视频任务保留全部视频", () => {
+    const task: TaskSpec = {
+      ...VIDEO_TASK,
+      inputs: [
+        {
+          name: "video",
+          label: "视频文件",
+          kind: "file",
+          accept: [".mkv", ".mp4"],
+          required: true,
+          multiple: true,
+        },
+      ],
+    };
+    const result = routePaths(task, {}, [
+      "C:/show/EP01.mkv",
+      "C:/show/EP02.mp4",
+      "C:/show/EP03.mkv",
+    ]);
+    expect(result.assigned).toEqual([
+      {
+        input: "video",
+        paths: ["C:/show/EP01.mkv", "C:/show/EP02.mp4", "C:/show/EP03.mkv"],
+      },
+    ]);
+  });
+
   it("识别语言后缀", () => {
     expect(hasLanguageSuffix("EP01.zh-CN.srt")).toBe(true);
     expect(hasLanguageSuffix("EP01.en.srt")).toBe(true);

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getProject, listProjects } from "../lib/api";
+import { deleteProject, getProject, listProjects } from "../lib/api";
 import type { Project, ProjectSummary } from "../lib/models";
 
 interface ProjectState {
@@ -7,11 +7,14 @@ interface ProjectState {
   active: Project | null;
   loading: boolean;
   lastError: string | null;
+  /** 正在删除的项目；用于按钮禁用/加载态。 */
+  deletingId: string | null;
   /** HandoffCard 引导回首页后，流程 2 预选的项目。 */
   preferredProjectId: string | null;
   refresh: () => Promise<void>;
   select: (id: string) => Promise<void>;
   applyUpdate: (project: Project) => void;
+  remove: (id: string) => Promise<void>;
   clearActive: () => void;
   preferProject: (id: string | null) => void;
 }
@@ -21,6 +24,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   active: null,
   loading: false,
   lastError: null,
+  deletingId: null,
   preferredProjectId: null,
 
   refresh: async () => {
@@ -88,6 +92,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             ...state.projects,
           ],
     }));
+  },
+
+  remove: async (id) => {
+    set({ deletingId: id, lastError: null });
+    try {
+      await deleteProject(id);
+      set((state) => ({
+        projects: state.projects.filter((item) => item.id !== id),
+        active: state.active?.id === id ? null : state.active,
+        preferredProjectId: state.preferredProjectId === id ? null : state.preferredProjectId,
+        deletingId: null,
+      }));
+    } catch (error) {
+      set({
+        deletingId: null,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+    }
   },
 
   clearActive: () => set({ active: null }),

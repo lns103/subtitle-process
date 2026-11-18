@@ -40,6 +40,7 @@ async def test_tasks_list_includes_workflows_and_functions(
     assert workflow["recipe_id"] == "video_to_clean_srt"
     assert workflow["requires_project"] is False
     assert workflow["inputs"][0]["name"] == "video"
+    assert workflow["inputs"][0]["multiple"] is True
 
     bilingual = by_id["translated_to_bilingual"]
     assert bilingual["kind"] == "workflow"

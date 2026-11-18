@@ -27,6 +27,21 @@
 - Rust `cargo test --lib` 10 个用例通过（含 3 个重启 generation 回归测试）。
 - 追加 RPC 冒烟：`tasks.list`、双语双输入生成 ASS、`fn_normalize` / `fn_merge_bilingual` / `fn_rename` 均通过。
 
+### 批量处理、连接测试与项目删除
+
+#### 新增
+- **视频批量处理**：`video_to_clean_srt` 与 `fn_extract_subtitles` 的视频输入支持多选/文件夹展开；首页按视频顺序逐个创建项目并运行，失败项不阻断队列，遇到人工审核自动暂停并在审核完成后继续，队列进度跨页面保留。
+- **最近项目删除**：项目列表每行新增删除按钮，二次确认后调用 `project.delete`，会同时清理项目工作区与已导出文件；运行中的项目禁止删除。
+- **关闭当前项目**：项目卡片右上角新增关闭按钮，只收起当前项目详情/HandoffCard，不删除数据；最近项目列表中的项目仍可再次打开。
+
+#### 修复
+- **Agent 连接测试误报**：`ping` 不再要求响应包含文本内容，并把 `max_tokens` 放宽到 128；推理型/兼容端点在空 `content` 时也能正确判定连接成功。
+- **打开所在文件夹路径错误**：产物定位改走 Tauri `reveal_path`；引擎 Windows 实现改为 `explorer.exe /select,"<路径>"`，修复含空格路径被 explorer 忽略并打开默认目录的问题。
+
+#### 测试
+- 引擎 `248 passed, 1 skipped`；新增连接测试空正文、`reveal` 含空格路径、任务视频多选用例。
+- 前端 `125 passed`，`tsc --noEmit` 与 `vite build` 通过；新增批量队列、视频多值分发、项目删除、关闭当前项目用例。
+
 ### 版本
 
 - 桌面应用版本号提升至 **`1.0.0-alpha2`**：Tauri、前端与 Rust 配置保持同步；Python 引擎版本仍为 `0.1.0`。

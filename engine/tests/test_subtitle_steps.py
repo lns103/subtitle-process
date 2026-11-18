@@ -16,6 +16,7 @@ from subtitle_engine.core.pipeline import JobManager
 from subtitle_engine.core.registry import register_step, step_specs
 from subtitle_engine.core.step import Step, StepContext
 from subtitle_engine.core.store import Store
+from subtitle_engine.steps.subtitle import ExportOptions
 
 SAMPLE = """1
 00:00:01,000 --> 00:00:03,000
@@ -124,6 +125,11 @@ Hello there
 00:00:03,100 --> 00:00:04,000
 Real text
 """
+
+
+def test_export_default_suffix_is_empty() -> None:
+    """干净输出默认不追加 .clean 等后缀。"""
+    assert ExportOptions().suffix == ""
 
 
 async def test_normalize_validate_export(tmp_path: Path) -> None:

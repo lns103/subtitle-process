@@ -82,7 +82,7 @@ def _make_project(tmp_path: Path) -> Project:
 
 def _flow2_recipe(output_dir: Path) -> Recipe:
     return Recipe(
-        id="translated_to_bilingual",
+        id="batch_translated_to_bilingual",
         name="译文 → 双语 ASS",
         inputs=[],
         steps=[

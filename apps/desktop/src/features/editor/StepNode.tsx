@@ -28,6 +28,17 @@ export function StepNode({ data, selected }: NodeProps<DisplayNode>) {
         data.errorCount === 0 && data.warningCount > 0 ? "ring-2 ring-amber-200" : ""
       }`}
     >
+      {data.runInputCount ? (
+        <Handle
+          type="target"
+          id="__recipe_input__"
+          position={Position.Left}
+          isConnectable={false}
+          style={{ top: 14 }}
+          className="!-left-4 !h-2.5 !w-2.5 !border-2 !border-white !bg-sky-500"
+        />
+      ) : null}
+
       <div className="flex items-start gap-2 border-b border-slate-100 px-3 py-2.5">
         <span className={`mt-0.5 rounded-lg p-1.5 ${tone}`}>
           <Icon className="h-4 w-4" />

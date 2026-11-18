@@ -415,6 +415,7 @@ class RpcServer:
             return not accepted or path.suffix.lower() in accepted
 
         files: list[Path] = []
+        directories: list[Path] = []
         for raw in raw_paths:
             path = Path(normalize_path(raw))
             if not path.exists():
@@ -427,6 +428,7 @@ class RpcServer:
                 continue
             if not path.is_dir():
                 continue
+            directories.append(path)
             iterator = path.rglob("*") if recursive else path.iterdir()
             for item in sorted(iterator):
                 if not item.is_file() or not wanted(item):
@@ -461,7 +463,10 @@ class RpcServer:
                     "size": size,
                 }
             )
-        return {"files": payload}
+        return {
+            "files": payload,
+            "directories": [str(path) for path in directories],
+        }
 
     async def _handle_pipeline_run(self, params: dict[str, Any]) -> dict[str, str]:
         recipe = self._load_recipe_param(params, required=False) or default_demo_recipe()

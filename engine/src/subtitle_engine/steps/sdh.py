@@ -20,7 +20,7 @@ from ..core.models import Artifact, PortSpec, Review, ReviewItem
 from ..core.registry import register_step
 from ..core.reviews import ReviewPending
 from ..core.step import Step, StepContext
-from ..domain.sdh import SDH_RULES, apply_text_edits, scan_doc
+from ..domain.sdh import DEFAULT_SDH_RULES, apply_text_edits, scan_doc
 from ..domain.srt import parse_srt, serialize_srt
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
 from ._support import artifact_stem, read_text
@@ -40,8 +40,8 @@ SdhRule = Literal[
 
 class SdhScanOptions(BaseModel):
     rules: list[SdhRule] = Field(
-        default_factory=lambda: list(SDH_RULES),
-        description="启用的 SDH 规则；只标记，不修改字幕",
+        default_factory=lambda: list(DEFAULT_SDH_RULES),
+        description="启用的 SDH 规则；默认不包含 music（音乐符号）；只标记，不修改字幕",
     )
     uppercase_min_length: int = Field(
         default=4, ge=1, description="全大写规则的最短字符数"

@@ -20,7 +20,7 @@ interface TranslatedToBilingualProps {
   engineReady: boolean;
 }
 
-const RECIPE_ID = "translated_to_bilingual";
+const RECIPE_ID = "batch_translated_to_bilingual";
 
 const STATUS_TEXT: Record<ProjectSummary["status"], string> = {
   draft: "草稿",

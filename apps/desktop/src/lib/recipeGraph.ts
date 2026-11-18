@@ -7,7 +7,7 @@
 
 import { graphlib, layout } from "dagre";
 
-import type { EditorEdge, EditorNode } from "./editorTypes";
+import type { EditorEdge, EditorNode, InputNode } from "./editorTypes";
 import { edgeId } from "./editorTypes";
 import type {
   JsonSchema,
@@ -226,40 +226,76 @@ function uiPosition(ui: Record<string, unknown> | undefined): { x: number; y: nu
   return null;
 }
 
-/** 在两端步骤之间挑一对类型兼容的端口；无兼容端口时退回名称排序第一项。 */
-function choosePorts(
-  sourceSpec: StepSpec | undefined,
-  targetSpec: StepSpec | undefined,
-): { sourceHandle: string | null; targetHandle: string | null; kind: string | null } {
+interface PortChoice {
+  sourceHandle: string | null;
+  targetHandle: string | null;
+  kind: string | null;
+}
+
+function sortTargetInputs(spec: StepSpec): string[] {
+  return Object.keys(spec.inputs).sort((left, right) => {
+    const leftRequired = spec.inputs[left]?.required ? 0 : 1;
+    const rightRequired = spec.inputs[right]?.required ? 0 : 1;
+    return leftRequired - rightRequired || left.localeCompare(right);
+  });
+}
+
+/**
+ * 在两端步骤之间挑出所有兼容端口对。
+ *
+ * 引擎按类型把上游产物分发给下游每个输入端口，因此画布也应为每个可被
+ * 上游满足的输入端口画一条边；同名端口优先（如 `subs → subs`、
+ * `candidates → candidates`），避免出现“只连了一条线”的误导。
+ */
+function choosePorts(sourceSpec: StepSpec | undefined, targetSpec: StepSpec | undefined): PortChoice[] {
   if (!sourceSpec || !targetSpec) {
-    return { sourceHandle: null, targetHandle: null, kind: null };
+    return [{ sourceHandle: null, targetHandle: null, kind: null }];
   }
 
   const outputs = Object.keys(sourceSpec.outputs).sort();
-  const inputs = Object.keys(targetSpec.inputs).sort((left, right) => {
-    const leftRequired = targetSpec.inputs[left]?.required ? 0 : 1;
-    const rightRequired = targetSpec.inputs[right]?.required ? 0 : 1;
-    return leftRequired - rightRequired || left.localeCompare(right);
-  });
+  const inputs = sortTargetInputs(targetSpec);
+  const choices: PortChoice[] = [];
+  const matchedInputs = new Set<string>();
 
+  // 同名端口优先，例如 sdh_scan.candidates → human.review.candidates。
   for (const inputName of inputs) {
-    for (const outputName of outputs) {
-      if (portCompatible(sourceSpec.outputs[outputName].kind, targetSpec.inputs[inputName].kind)) {
-        return {
-          sourceHandle: outputName,
-          targetHandle: inputName,
-          kind: sourceSpec.outputs[outputName].kind,
-        };
-      }
+    const outputName = outputs.find((name) => name === inputName);
+    if (
+      outputName &&
+      portCompatible(sourceSpec.outputs[outputName].kind, targetSpec.inputs[inputName].kind)
+    ) {
+      choices.push({
+        sourceHandle: outputName,
+        targetHandle: inputName,
+        kind: sourceSpec.outputs[outputName].kind,
+      });
+      matchedInputs.add(inputName);
     }
   }
 
+  for (const inputName of inputs) {
+    if (matchedInputs.has(inputName)) continue;
+    const outputName = outputs.find((name) =>
+      portCompatible(sourceSpec.outputs[name].kind, targetSpec.inputs[inputName].kind),
+    );
+    if (!outputName) continue;
+    choices.push({
+      sourceHandle: outputName,
+      targetHandle: inputName,
+      kind: sourceSpec.outputs[outputName].kind,
+    });
+  }
+
+  if (choices.length > 0) return choices;
+
   const sourceHandle = outputs[0] ?? null;
-  return {
-    sourceHandle,
-    targetHandle: inputs[0] ?? null,
-    kind: sourceHandle ? sourceSpec.outputs[sourceHandle].kind : null,
-  };
+  return [
+    {
+      sourceHandle,
+      targetHandle: inputs[0] ?? null,
+      kind: sourceHandle ? sourceSpec.outputs[sourceHandle].kind : null,
+    },
+  ];
 }
 
 /** 由配方生成画布节点/边；步骤自带 ui.x/ui.y 时采用，否则自动布局。 */
@@ -295,20 +331,21 @@ export function nodesAndEdgesFromRecipe(
         continue;
       }
       const sourceSpec = specByUses.get(sourceStep.uses);
-      const ports = choosePorts(sourceSpec, targetSpec);
-      const id = edgeId(sourceId, ports.sourceHandle, step.id, ports.targetHandle);
-      if (emitted.has(id)) {
-        continue;
+      for (const ports of choosePorts(sourceSpec, targetSpec)) {
+        const id = edgeId(sourceId, ports.sourceHandle, step.id, ports.targetHandle);
+        if (emitted.has(id)) {
+          continue;
+        }
+        emitted.add(id);
+        edges.push({
+          id,
+          source: sourceId,
+          target: step.id,
+          sourceHandle: ports.sourceHandle,
+          targetHandle: ports.targetHandle,
+          data: { kind: ports.kind ?? undefined },
+        });
       }
-      emitted.add(id);
-      edges.push({
-        id,
-        source: sourceId,
-        target: step.id,
-        sourceHandle: ports.sourceHandle,
-        targetHandle: ports.targetHandle,
-        data: { kind: ports.kind ?? undefined },
-      });
     }
   }
 
@@ -320,6 +357,100 @@ export function nodesAndEdgesFromRecipe(
     }),
     edges,
   };
+}
+
+/** 无显式 bind 的配方输入使用运行时注入入口。 */
+export const RECIPE_INPUT_HANDLE = "__recipe_input__";
+
+function recipeInputEdgeId(name: string, step: string, port: string): string {
+  return `recipe-input:${name}->${step}:${port}`;
+}
+
+/**
+ * 把配方 `inputs` 渲染成只读输入节点与连线。
+ *
+ * - 有 `bind` 的输入连到对应步骤端口，多个绑定会生成多条线；
+ * - 没有 `bind` 的输入随后端运行时注入，连到无入边的首个步骤的通用入口。
+ */
+export function recipeInputNodesAndEdges(
+  inputs: RecipeInput[],
+  nodes: EditorNode[],
+  edges: EditorEdge[],
+): { nodes: InputNode[]; edges: EditorEdge[] } {
+  if (inputs.length === 0 || nodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const incoming = new Set(edges.map((edge) => edge.target));
+  const rootId = nodes.find((node) => !incoming.has(node.id))?.id ?? nodes[0]?.id;
+
+  const inputNodes: InputNode[] = [];
+  const inputEdges: EditorEdge[] = [];
+  const slotByTarget = new Map<string, number>();
+
+  for (const input of inputs) {
+    const bindings = (input.bind ?? []).filter((binding) => nodeById.has(binding.step));
+    const targetId = bindings[0]?.step ?? rootId;
+    const target = targetId ? nodeById.get(targetId) : undefined;
+    const slot = slotByTarget.get(targetId ?? "") ?? 0;
+    slotByTarget.set(targetId ?? "", slot + 1);
+
+    const nodeId = `input:${input.name}`;
+    inputNodes.push({
+      id: nodeId,
+      type: "recipeInput",
+      position: {
+        x: (target?.position.x ?? 0) - 300,
+        y: (target?.position.y ?? 0) + slot * 96,
+      },
+      draggable: false,
+      selectable: false,
+      deletable: false,
+      data: {
+        name: input.name,
+        label: input.label?.trim() || input.name,
+        kind: input.kind,
+        accept: input.accept,
+        required: input.required,
+        multiple: input.multiple === true,
+        bound: bindings.length > 0,
+      },
+    });
+
+    if (bindings.length > 0) {
+      for (const binding of bindings) {
+        inputEdges.push({
+          id: recipeInputEdgeId(input.name, binding.step, binding.port),
+          source: nodeId,
+          sourceHandle: "value",
+          target: binding.step,
+          targetHandle: binding.port,
+          deletable: false,
+          selectable: false,
+          style: { stroke: "#38bdf8", strokeDasharray: "4 3" },
+          data: { kind: input.kind },
+        });
+      }
+      continue;
+    }
+
+    if (targetId) {
+      inputEdges.push({
+        id: recipeInputEdgeId(input.name, targetId, RECIPE_INPUT_HANDLE),
+        source: nodeId,
+        sourceHandle: "value",
+        target: targetId,
+        targetHandle: RECIPE_INPUT_HANDLE,
+        deletable: false,
+        selectable: false,
+        style: { stroke: "#38bdf8", strokeDasharray: "4 3" },
+        data: { kind: input.kind },
+      });
+    }
+  }
+
+  return { nodes: inputNodes, edges: inputEdges };
 }
 
 /**

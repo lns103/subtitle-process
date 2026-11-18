@@ -27,7 +27,7 @@ def manager(tmp_path: Path):
     store.close()
 
 
-def _run(project_id: str, *, status: str = "done", recipe: str = "video_to_clean_srt") -> Run:
+def _run(project_id: str, *, status: str = "done", recipe: str = "batch_video_to_clean_srt") -> Run:
     now = datetime.now(UTC)
     return Run(
         id="run_test01",
@@ -104,7 +104,7 @@ def test_failed_run_marks_project_failed(tmp_path: Path, manager) -> None:
 def test_translated_recipe_done(tmp_path: Path, manager) -> None:
     project = manager.create(name="demo")
     updated = manager.record_run(
-        _run(project.id, recipe="translated_to_bilingual"),
+        _run(project.id, recipe="batch_translated_to_bilingual"),
         [ProjectOutput(path="x.ass", kind="ass")],
     )
     assert updated is not None

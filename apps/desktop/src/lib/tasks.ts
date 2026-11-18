@@ -31,7 +31,7 @@ export function matchesAccept(path: string, accept: string[]): boolean {
 export function findBilingualTask(tasks: TaskSpec[]): TaskSpec | null {
   return (
     tasks.find(
-      (task) => task.id === "translated_to_bilingual" || task.recipe_id === "translated_to_bilingual",
+      (task) => task.id === "batch_translated_to_bilingual" || task.recipe_id === "batch_translated_to_bilingual",
     ) ??
     tasks.find((task) => task.inputs.some((input) => input.name === "original")) ??
     null
@@ -44,4 +44,12 @@ export function pickOriginalSubtitle(paths: string[]): string | null {
   if (clean) return clean;
   const srt = [...paths].reverse().find((path) => /\.srt$/i.test(path));
   return srt ?? null;
+}
+
+/** 批量原版字幕：返回全部 .clean.srt（无则全部 .srt），去重并保持原始顺序。 */
+export function pickOriginalSubtitles(paths: string[]): string[] {
+  const unique = Array.from(new Set(paths));
+  const clean = unique.filter((path) => /\.clean\.srt$/i.test(path));
+  if (clean.length > 0) return clean;
+  return unique.filter((path) => /\.srt$/i.test(path));
 }

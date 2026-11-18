@@ -1,4 +1,4 @@
-id: video_to_clean_srt
+id: batch_video_to_clean_srt
 name: 视频 → 规范字幕
 version: 1
 description: 提取内嵌字幕 → 清理 → SDH 扫描/人工审核 → 校验 → 导出干净 SRT。
@@ -33,7 +33,7 @@ steps:
     uses: sub.sdh_scan
     needs: [normalize]
     with:
-      rules: [bracketed, parenthetical, music, speaker, uppercase, arrow, ellipsis_action]
+      rules: [bracketed, parenthetical, speaker, uppercase, arrow, ellipsis_action]
       uppercase_min_length: 4
   - id: sdh_review
     uses: human.review
@@ -49,7 +49,7 @@ steps:
     needs: [validate]
     with:
       format: srt
-      suffix: ".clean"
+      suffix: ""
       output_dir: ""
       backup: true
 outputs:

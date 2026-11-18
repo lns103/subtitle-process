@@ -92,11 +92,19 @@ export interface StepSpec {
 
 export type RecipeInputKind = "file" | "folder" | "files";
 
+export interface RecipeInputBinding {
+  step: string;
+  port: string;
+}
+
 export interface RecipeInput {
   name: string;
+  label?: string;
   kind: RecipeInputKind;
   accept: string[];
   required: boolean;
+  multiple?: boolean;
+  bind?: RecipeInputBinding[];
 }
 
 export interface RecipeStep {
@@ -183,6 +191,8 @@ export interface ScannedFile {
 
 export interface FileScanResult {
   files: ScannedFile[];
+  /** 输入中属于文件夹的路径；用于批量项目按拖入文件夹命名。 */
+  directories?: string[];
 }
 
 // ---- media.inspect -----------------------------------------------------

@@ -64,6 +64,25 @@ export function looksCleanOriginal(path: string): boolean {
   return CLEAN_SUFFIX.test(fileName(path)) || /[._-]orig(?:[._-]|$)/i.test(fileName(path));
 }
 
+/** 批量项目名：优先拖入的文件夹名，否则用第一个视频的文件名。 */
+export function batchProjectName(paths: string[], directories: string[] = []): string {
+  const folder = directories.find((path) => fileName(path).trim().length > 0);
+  if (folder) return fileName(folder);
+  const first = paths[0] ?? "";
+  return fileName(first).replace(/\.[^.]+$/, "") || "未命名项目";
+}
+
+/** 只保留确实包含这些文件的文件夹，避免过期的分发记录影响项目命名。 */
+export function directoriesForPaths(directories: string[], paths: string[]): string[] {
+  const normalize = (path: string) =>
+    path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const normalizedPaths = paths.map(normalize);
+  return directories.filter((directory) => {
+    const base = `${normalize(directory)}/`;
+    return normalizedPaths.some((path) => path.startsWith(base));
+  });
+}
+
 /** 优先用引擎返回的 role；旧数据按输入名/标签推断。 */
 export function inferInputRole(input: TaskInputSpec): InputRole {
   const explicit = (input as TaskInputSpec & { role?: string }).role;

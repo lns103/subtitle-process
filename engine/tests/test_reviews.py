@@ -14,7 +14,7 @@ from subtitle_engine.core.models import PortSpec, Recipe, StepNode
 from subtitle_engine.core.registry import register_step
 from subtitle_engine.core.reviews import ReviewStore
 from subtitle_engine.core.step import Step, StepContext
-from subtitle_engine.domain.sdh import analyze_text, scan_doc
+from subtitle_engine.domain.sdh import SDH_RULES, analyze_text, scan_doc
 from subtitle_engine.domain.srt import parse_srt
 from subtitle_engine.rpc.errors import INVALID_PARAMS, JsonRpcError
 from subtitle_engine.rpc.server import RpcServer
@@ -73,7 +73,12 @@ def review_recipe(output_dir: str = "") -> Recipe:
         name="M5 审核",
         steps=[
             StepNode(id="seed", uses="test.seed_review_srt"),
-            StepNode(id="scan", uses="sub.sdh_scan", needs=["seed"]),
+            StepNode(
+                id="scan",
+                uses="sub.sdh_scan",
+                needs=["seed"],
+                options={"rules": list(SDH_RULES)},
+            ),
             StepNode(id="review", uses="human.review", needs=["scan"]),
             StepNode(
                 id="export",
@@ -96,15 +101,20 @@ def test_rules_mark_without_modifying() -> None:
     doc = parse_srt(SAMPLE)
     candidates = scan_doc(doc)
 
-    assert [item.segment_index for item in candidates] == [1, 2, 3]
+    # 默认不审核音乐符号：段落 2（♪ music ♪）不产生候选。
+    assert [item.segment_index for item in candidates] == [1, 3]
     assert candidates[0].reasons == ["bracketed"]
     assert candidates[0].action == "remove"
-    assert candidates[1].reasons == ["music"]
-    assert candidates[2].reasons == ["speaker"]
-    assert candidates[2].action == "rewrite"
-    assert candidates[2].after == "Hello"
+    assert candidates[1].reasons == ["speaker"]
+    assert candidates[1].action == "rewrite"
+    assert candidates[1].after == "Hello"
     # 只标记：原文档文本不变。
     assert doc.cues[0].text == "[door slams]"
+    assert doc.cues[1].text == "♪ music ♪"
+
+    with_music = scan_doc(doc, rules=SDH_RULES)
+    assert [item.segment_index for item in with_music] == [1, 2, 3]
+    assert with_music[1].reasons == ["music"]
 
 
 def test_scan_marks_twenty_sdh_candidates() -> None:
@@ -124,7 +134,7 @@ def test_scan_marks_twenty_sdh_candidates() -> None:
             f"{index + 1}\n00:00:{index:02d},000 --> 00:00:{index:02d},900\n{text}"
         )
     doc = parse_srt("\n\n".join(blocks) + "\n")
-    candidates = scan_doc(doc)
+    candidates = scan_doc(doc, rules=SDH_RULES)
     assert len(candidates) == 20
     assert all(item.reasons for item in candidates)
 

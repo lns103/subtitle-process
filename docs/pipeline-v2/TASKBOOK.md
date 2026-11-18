@@ -181,8 +181,8 @@ repo/
 │  │  │  ├─ sdh.py
 │  │  │  └─ prompts/sdh_v1.md
 │  │  ├─ recipes/
-│  │  │  ├─ video_to_clean_srt.yaml
-│  │  │  ├─ translated_to_bilingual.yaml
+│  │  │  ├─ batch_video_to_clean_srt.yaml
+│  │  │  ├─ batch_translated_to_bilingual.yaml
 │  │  │  ├─ batch_normalize.yaml
 │  │  │  └─ batch_shift_fps.yaml
 │  │  └─ adapters/
@@ -655,17 +655,17 @@ class Recipe(BaseModel):
 
 `engine/src/subtitle_engine/recipes/` 内置 4 个，`builtin=true`，UI 中**只读**，复制后可改：
 
-1. `video_to_clean_srt`
-2. `translated_to_bilingual`
+1. `batch_video_to_clean_srt`
+2. `batch_translated_to_bilingual`
 3. `batch_normalize`
 4. `batch_shift_fps`
 
 用户配方存 `<app_data>/recipes/*.json`，版本字段用于未来迁移。
 
-### 9.4 `video_to_clean_srt` 参考
+### 9.4 `batch_video_to_clean_srt` 参考
 
 ```yaml
-id: video_to_clean_srt
+id: batch_video_to_clean_srt
 name: 视频 → 规范字幕
 version: 1
 builtin: true
@@ -710,13 +710,13 @@ steps:
     needs: [validate]
     with:
       format: srt
-      suffix: ".clean"
+      suffix: ""
 ```
 
-### 9.5 `translated_to_bilingual` 参考
+### 9.5 `batch_translated_to_bilingual` 参考
 
 ```yaml
-id: translated_to_bilingual
+id: batch_translated_to_bilingual
 name: 译文 SRT → 双语 ASS
 version: 1
 builtin: true
@@ -960,7 +960,7 @@ class SdhCandidate(BaseModel):
 - 使用 Tauri `onDragDropEvent` 获取真实路径。
 - 不要依赖 HTML5 `DataTransfer.files`（WebView 中拿不到完整路径）。
 - 拖入后识别类型：
-  - `.mkv/.mp4/.mov/.avi/.ts` → 推荐 `video_to_clean_srt`
+  - `.mkv/.mp4/.mov/.avi/.ts` → 推荐 `batch_video_to_clean_srt`
   - `.srt/.ass/.vtt` → 推荐 `batch_normalize` 或匹配已有项目
   - 文件夹 → 批量模式
 
@@ -1015,9 +1015,9 @@ draft
 ### 13.2 流程 1
 
 1. 拖入视频。
-2. 识别为视频 → 推荐 `video_to_clean_srt`。
+2. 识别为视频 → 推荐 `batch_video_to_clean_srt`。
 3. 运行，实时显示 DAG 状态。
-4. 完成后产出 `clean/<stem>.clean.srt`。
+4. 完成后产出 `<stem>.srt`。
 5. 状态置 `waiting_translation`。
 6. 显示交接卡片：
    - 路径
@@ -1035,7 +1035,7 @@ draft
    4. 最近 7 天项目
 3. 找到 → 提示「继续 EP01 的合并流程」。
 4. 找不到 → 展示候选列表 + 时间轴对比，让用户选。
-5. 运行 `translated_to_bilingual`。
+5. 运行 `batch_translated_to_bilingual`。
 6. 输出 `output/<stem>.zh&en.ass`。
 
 ### 13.4 文件命名约定
@@ -1043,7 +1043,7 @@ draft
 | 产物 | 命名 |
 |---|---|
 | 原始提取 | `<stem>.orig.srt` |
-| 清洗后 | `<stem>.clean.srt` |
+| 清洗后 | `<stem>.srt` |
 | 译文（用户提供） | `<stem>.zh.srt` |
 | 双语 | `<stem>.zh&en.ass` |
 
@@ -1154,9 +1154,9 @@ src-tauri/binaries/subtitle-engine-x86_64-pc-windows-msvc.exe
 
 `scripts/e2e.ps1`：
 
-1. 用 `engine` CLI 跑 `video_to_clean_srt` 的 fixture。
+1. 用 `engine` CLI 跑 `batch_video_to_clean_srt` 的 fixture。
 2. 校验输出存在、行数、时间轴。
-3. 跑 `translated_to_bilingual`。
+3. 跑 `batch_translated_to_bilingual`。
 4. 返回非 0 即失败。
 
 ---
@@ -1261,7 +1261,7 @@ mkvmerge --version
 
 验收：拖入视频 → 干净 SRT → 状态 `waiting_translation`，重启应用后项目仍在。
 （`tests/test_flow1.py` 用真实 ffmpeg 生成的 MKV 跑通
-`project.create → pipeline.run(video_to_clean_srt) → project.get`，并重启
+`project.create → pipeline.run(batch_video_to_clean_srt) → project.get`，并重启
 `RpcServer` 验证项目仍在；前端新增「最近项目」与交接卡片。）
 
 ### M4 自由连线编辑器（7 天）✅
@@ -1322,7 +1322,7 @@ API Key 时跳过真实评测。前端新增 `#/settings` 设置页与连接测�
 
 验收：干净 Windows 虚拟机安装 → 流程 1 → 手动翻译 → 拖回 → 双语 ASS，全程无 Python 环境。
 （`engine/tests/test_flow2.py` 用真实 ffmpeg MKV 跑通
-`project.create → video_to_clean_srt → 构造译文 → translated_to_bilingual`，
+`project.create → batch_video_to_clean_srt → 构造译文 → batch_translated_to_bilingual`，
 并验证重启后项目为 `done`；`scripts/e2e.ps1` 用 CLI 跑通两阶段。领域层
 `domain/merge.py` 与旧 `tools/merge_srt.py`、`domain/timing.py` /
 `domain/outline.py` 与旧实现均做逐字节 golden。

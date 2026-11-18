@@ -16,7 +16,7 @@ interface RunViewProps {
   engineReady: boolean;
 }
 
-const RECIPE_ID = "video_to_clean_srt";
+const RECIPE_ID = "batch_video_to_clean_srt";
 
 interface VideoToCleanSrtProps {
   paths: string[];

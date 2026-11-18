@@ -22,6 +22,9 @@ SDH_RULES: tuple[str, ...] = (
     "ellipsis_action",
 )
 
+#: 默认启用的规则：音乐符号（♪/♫ 等）通常是对白/歌词，默认不参与 SDH 审核。
+DEFAULT_SDH_RULES: tuple[str, ...] = tuple(rule for rule in SDH_RULES if rule != "music")
+
 #: 每条规则的默认置信度；多规则命中时取最大值。
 RULE_CONFIDENCE: dict[str, float] = {
     "bracketed": 0.90,
@@ -141,7 +144,7 @@ def analyze_text(
 def scan_cues(
     cues: Iterable[Cue],
     *,
-    rules: Iterable[str] = SDH_RULES,
+    rules: Iterable[str] = DEFAULT_SDH_RULES,
     uppercase_min_length: int = 4,
 ) -> list[SdhCandidate]:
     """扫描全部字幕，返回按段落顺序排列的候选。"""
@@ -175,7 +178,7 @@ def scan_cues(
 def scan_doc(
     doc: SubtitleDoc,
     *,
-    rules: Iterable[str] = SDH_RULES,
+    rules: Iterable[str] = DEFAULT_SDH_RULES,
     uppercase_min_length: int = 4,
 ) -> list[SdhCandidate]:
     """``scan_cues`` 的文档便捷入口。"""
@@ -198,6 +201,7 @@ def apply_text_edits(cues: Iterable[Cue], edits: dict[int, str]) -> list[Cue]:
 
 
 __all__ = [
+    "DEFAULT_SDH_RULES",
     "RULE_CONFIDENCE",
     "SDH_RULES",
     "SdhCandidate",

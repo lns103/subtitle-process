@@ -95,7 +95,7 @@ def _make_translation(clean_srt: Path, target: Path) -> Path:
     return target
 
 
-async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
+async def test_flow2_batch_translated_to_bilingual(tmp_path: Path) -> None:
     video = _make_video(tmp_path / "EP01.mkv", tmp_path)
     data_dir = tmp_path / "data"
     messages: list[dict[str, Any]] = []
@@ -108,7 +108,7 @@ async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
             _request(
                 "pipeline.run",
                 {
-                    "recipe_id": "video_to_clean_srt",
+                    "recipe_id": "batch_video_to_clean_srt",
                     "inputs": [str(video)],
                     "project_id": project["id"],
                 },
@@ -122,7 +122,7 @@ async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
         clean_outputs = [
             Path(item["path"])
             for item in refreshed["outputs"]
-            if item["path"].lower().endswith(".clean.srt")
+            if item["path"].lower().endswith(".srt")
         ]
         assert clean_outputs, refreshed["outputs"]
         clean_srt = clean_outputs[-1]
@@ -134,7 +134,7 @@ async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
         validation = await server.dispatch(
             _request(
                 "pipeline.validate",
-                {"recipe_id": "translated_to_bilingual", "project_id": project["id"]},
+                {"recipe_id": "batch_translated_to_bilingual", "project_id": project["id"]},
             )
         )
         assert validation["ok"], validation
@@ -143,7 +143,7 @@ async def test_flow2_translated_to_bilingual(tmp_path: Path) -> None:
             _request(
                 "pipeline.run",
                 {
-                    "recipe_id": "translated_to_bilingual",
+                    "recipe_id": "batch_translated_to_bilingual",
                     "inputs_by_name": {
                         "original": [str(clean_srt)],
                         "translated": [str(translated)],
@@ -189,7 +189,7 @@ async def test_flow2_restart_keeps_done_project(tmp_path: Path) -> None:
             _request(
                 "pipeline.run",
                 {
-                    "recipe_id": "video_to_clean_srt",
+                    "recipe_id": "batch_video_to_clean_srt",
                     "inputs": [str(video)],
                     "project_id": project_id,
                 },
@@ -201,7 +201,7 @@ async def test_flow2_restart_keeps_done_project(tmp_path: Path) -> None:
         clean_srt = next(
             Path(item["path"])
             for item in refreshed["outputs"]
-            if item["path"].lower().endswith(".clean.srt")
+            if item["path"].lower().endswith(".srt")
         )
         translated = _make_translation(clean_srt, tmp_path / "EP02.zh.srt")
 
@@ -209,7 +209,7 @@ async def test_flow2_restart_keeps_done_project(tmp_path: Path) -> None:
             _request(
                 "pipeline.run",
                 {
-                    "recipe_id": "translated_to_bilingual",
+                    "recipe_id": "batch_translated_to_bilingual",
                     "inputs_by_name": {
                         "original": [str(clean_srt)],
                         "translated": [str(translated)],

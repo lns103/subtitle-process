@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 _RECIPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 _BUILTIN_RECIPES = (
-    "video_to_clean_srt",
-    "translated_to_bilingual",
+    "batch_video_to_clean_srt",
+    "batch_translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",
     "fn_extract_subtitles",

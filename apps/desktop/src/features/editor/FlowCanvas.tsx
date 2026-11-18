@@ -14,19 +14,23 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AlertTriangle } from "lucide-react";
-import type { DisplayNode, EditorEdge, EditorNode } from "../../lib/editorTypes";
+import type { CanvasNode, EditorEdge, EditorNode } from "../../lib/editorTypes";
 import type { StepSpec } from "../../lib/models";
 import {
   connectionIssue,
   edgeIdsForIssue,
   issueCountsByStep,
+  RECIPE_INPUT_HANDLE,
+  recipeInputNodesAndEdges,
 } from "../../lib/recipeGraph";
 import { useEditorStore } from "../../stores/editorStore";
+import { InputNode } from "./InputNode";
 import { StepNode } from "./StepNode";
 import { STEP_DRAG_MIME } from "./StepPanel";
 
 const nodeTypes: NodeTypes = {
   step: StepNode as unknown as NodeTypes["step"],
+  recipeInput: InputNode as unknown as NodeTypes["recipeInput"],
 };
 
 const defaultEdgeOptions = {
@@ -37,6 +41,7 @@ const defaultEdgeOptions = {
 function CanvasInner() {
   const nodes = useEditorStore((state) => state.nodes);
   const edges = useEditorStore((state) => state.edges);
+  const inputs = useEditorStore((state) => state.inputs);
   const specs = useEditorStore((state) => state.specs);
   const issues = useEditorStore((state) => state.issues);
   const applyNodes = useEditorStore((state) => state.applyNodes);
@@ -66,9 +71,23 @@ function CanvasInner() {
 
   const counts = useMemo(() => issueCountsByStep(issues), [issues]);
 
-  const displayNodes = useMemo<DisplayNode[]>(
-    () =>
-      nodes.map((node) => {
+  const inputGraph = useMemo(
+    () => recipeInputNodesAndEdges(inputs, nodes, edges),
+    [inputs, nodes, edges],
+  );
+
+  const runInputCounts = useMemo(() => {
+    const result = new Map<string, number>();
+    for (const edge of inputGraph.edges) {
+      if (edge.targetHandle !== RECIPE_INPUT_HANDLE) continue;
+      result.set(edge.target, (result.get(edge.target) ?? 0) + 1);
+    }
+    return result;
+  }, [inputGraph.edges]);
+
+  const displayNodes = useMemo<CanvasNode[]>(
+    () => [
+      ...nodes.map((node) => {
         const spec = specsByUses[node.data.uses];
         const count = counts[node.id] ?? { errors: 0, warnings: 0 };
         return {
@@ -80,10 +99,13 @@ function CanvasInner() {
             requiresAgent: spec?.requires_agent ?? false,
             errorCount: count.errors,
             warningCount: count.warnings,
+            runInputCount: runInputCounts.get(node.id) ?? 0,
           },
         };
       }),
-    [nodes, specsByUses, counts],
+      ...inputGraph.nodes,
+    ],
+    [nodes, specsByUses, counts, runInputCounts, inputGraph.nodes],
   );
 
   const edgeErrors = useMemo(() => {
@@ -98,8 +120,8 @@ function CanvasInner() {
   }, [issues, edges]);
 
   const displayEdges = useMemo(
-    () =>
-      edges.map((edge) => {
+    () => [
+      ...edges.map((edge) => {
         const severity = edgeErrors.get(edge.id);
         if (!severity) return edge;
         return {
@@ -111,7 +133,9 @@ function CanvasInner() {
           },
         };
       }),
-    [edges, edgeErrors],
+      ...inputGraph.edges,
+    ],
+    [edges, edgeErrors, inputGraph.edges],
   );
 
   const validateConnection = useCallback(
@@ -140,38 +164,50 @@ function CanvasInner() {
     [connect],
   );
 
+  const stepIds = useMemo(() => new Set(nodes.map((node) => node.id)), [nodes]);
+
   return (
     <div className="absolute inset-0">
-      <ReactFlow<DisplayNode, EditorEdge>
+      <ReactFlow<CanvasNode, EditorEdge>
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         isValidConnection={validateConnection}
-        onNodesChange={(changes: NodeChange<DisplayNode>[]) =>
-          applyNodes(changes as unknown as NodeChange<EditorNode>[])
+        onNodesChange={(changes: NodeChange<CanvasNode>[]) =>
+          applyNodes(
+            changes.filter((change) =>
+              stepIds.has((change as { id?: string }).id ?? ""),
+            ) as unknown as NodeChange<EditorNode>[],
+          )
         }
         onEdgesChange={(changes: EdgeChange<EditorEdge>[]) => applyEdges(changes)}
         onConnect={onConnect}
-        onNodeClick={(_, node) => setSelection([node.id])}
+        onNodeClick={(_, node) => {
+          if (node.type === "recipeInput") return;
+          setSelection([node.id]);
+        }}
         onPaneClick={() => setSelection([])}
         onNodeDragStart={(_, _node, dragged) => {
+          const stepNodes = dragged.filter((item) => item.type === "step");
           dragStart.current = Object.fromEntries(
-            dragged.map((item) => [item.id, { ...item.position }]),
+            stepNodes.map((item) => [item.id, { ...item.position }]),
           );
-          useEditorStore.temporal.getState().pause();
+          if (stepNodes.length > 0) useEditorStore.temporal.getState().pause();
         }}
         onNodeDragStop={(_, _node, dragged) => {
+          const stepNodes = dragged.filter((item) => item.type === "step");
           const start = dragStart.current;
           dragStart.current = {};
+          if (stepNodes.length === 0) return;
           // 拖动期间暂停记录：先把位置还原到拖动前，恢复记录后再提交最终位置，
           // 这样撤销历史里只留下“拖动前 → 拖动后”一步。
-          for (const item of dragged) {
+          for (const item of stepNodes) {
             const before = start[item.id];
             if (before) moveNode(item.id, before);
           }
           useEditorStore.temporal.getState().resume();
-          for (const item of dragged) {
+          for (const item of stepNodes) {
             moveNode(item.id, { x: item.position.x, y: item.position.y });
           }
         }}
@@ -206,7 +242,7 @@ function CanvasInner() {
           pannable
           zoomable
           className="!bottom-3 !right-3 !h-24 !w-40 rounded-lg border border-slate-200"
-          nodeColor="#e2e8f0"
+          nodeColor={(node) => (node.type === "recipeInput" ? "#bae6fd" : "#e2e8f0")}
           maskColor="rgb(241 245 249 / 0.7)"
         />
       </ReactFlow>

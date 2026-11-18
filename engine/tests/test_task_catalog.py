@@ -33,16 +33,16 @@ async def test_tasks_list_includes_workflows_and_functions(
     tasks = await server.dispatch(request("tasks.list", {}))
     by_id = {task["id"]: task for task in tasks}
 
-    workflow = by_id["video_to_clean_srt"]
+    workflow = by_id["batch_video_to_clean_srt"]
     assert workflow["kind"] == "workflow"
     assert workflow["group"] == "主流程"
     assert workflow["order"] == 10
-    assert workflow["recipe_id"] == "video_to_clean_srt"
+    assert workflow["recipe_id"] == "batch_video_to_clean_srt"
     assert workflow["requires_project"] is False
     assert workflow["inputs"][0]["name"] == "video"
     assert workflow["inputs"][0]["multiple"] is True
 
-    bilingual = by_id["translated_to_bilingual"]
+    bilingual = by_id["batch_translated_to_bilingual"]
     assert bilingual["kind"] == "workflow"
     input_names = {item["name"] for item in bilingual["inputs"]}
     assert input_names == {"original", "translated"}
@@ -76,6 +76,7 @@ async def test_files_scan_expands_folder_and_filters_accept(
     )
     names = [item["name"] for item in result["files"]]
     assert names == ["EP01.clean.srt", "EP01.zh.srt"]
+    assert result["directories"] == [str(folder)]
 
     recursive = await server.dispatch(
         request(
@@ -99,6 +100,7 @@ async def test_files_scan_accepts_files_and_rejects_missing(
         request("files.scan", {"paths": [str(source)], "accept": [".srt"]})
     )
     assert result["files"][0]["path"].endswith("EP01.srt")
+    assert result["directories"] == []
 
     with pytest.raises(JsonRpcError) as excinfo:
         await server.dispatch(

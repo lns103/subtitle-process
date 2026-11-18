@@ -20,12 +20,12 @@ import {
   scanFiles,
 } from "../../lib/api";
 import { onEngineEvent } from "../../lib/events";
-import { fileName } from "../../lib/inputRouting";
+import { directoriesForPaths, fileName } from "../../lib/inputRouting";
 import { subtitleBaseName } from "../../lib/flow2";
 import type { RecipeDefinition, StepSpec, TaskSpec } from "../../lib/models";
 import { navigate } from "../../lib/router";
 import { restartEngine, type EngineStatus } from "../../lib/rpc";
-import { pickOriginalSubtitle, taskInputLabel } from "../../lib/tasks";
+import { pickOriginalSubtitles, taskInputLabel } from "../../lib/tasks";
 import { getAppVersion } from "../../lib/version";
 import { runVideoBatch } from "../../lib/videoBatch";
 import { useBatchStore } from "../../stores/batchStore";
@@ -66,8 +66,8 @@ function engineBadge(status: EngineStatus): { text: string; tone: string } {
 function isBilingualTask(task: TaskSpec | null): boolean {
   return Boolean(
     task &&
-      (task.id === "translated_to_bilingual" ||
-        task.recipe_id === "translated_to_bilingual" ||
+      (task.id === "batch_translated_to_bilingual" ||
+        task.recipe_id === "batch_translated_to_bilingual" ||
         task.inputs.some((input) => input.name === "original")),
   );
 }
@@ -75,9 +75,9 @@ function isBilingualTask(task: TaskSpec | null): boolean {
 function isExtractionRecipe(task: TaskSpec | null): boolean {
   return Boolean(
     task &&
-      (task.id === "video_to_clean_srt" ||
+      (task.id === "batch_video_to_clean_srt" ||
         task.id === "fn_extract_subtitles" ||
-        task.recipe_id === "video_to_clean_srt"),
+        task.recipe_id === "batch_video_to_clean_srt"),
   );
 }
 
@@ -230,8 +230,8 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
       .then((project) => {
         if (disposed) return;
         useProjectStore.getState().applyUpdate(project);
-        const original = pickOriginalSubtitle(project.outputs.map((output) => output.path));
-        if (original) useTaskStore.getState().autoFillOriginal([original]);
+        const originals = pickOriginalSubtitles(project.outputs.map((output) => output.path));
+        if (originals.length > 0) useTaskStore.getState().autoFillOriginal(originals);
         setTargetProjectId(project.id);
         useProjectStore.getState().preferProject(null);
       })
@@ -291,8 +291,8 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
       }
       setOutputs(paths);
       if (extractionRun) {
-        const original = pickOriginalSubtitle([...paths, ...artifactPathsRef.current]);
-        if (original) useTaskStore.getState().autoFillOriginal([original]);
+        const originals = pickOriginalSubtitles([...paths, ...artifactPathsRef.current]);
+        if (originals.length > 0) useTaskStore.getState().autoFillOriginal(originals);
         if (projectId) useProjectStore.getState().preferProject(projectId);
       }
       void useProjectStore.getState().refresh();
@@ -347,6 +347,9 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
           return;
         }
         expanded = scanned.files.map((file) => file.path);
+        useTaskStore
+          .getState()
+          .setRoutingDirectories(taskId, scanned.directories ?? []);
       } catch (error) {
         setRouteNotice(
           `读取文件夹失败，已按原始路径分配：${
@@ -453,6 +456,7 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
 
       // 视频槽也可能收到文件夹（例如“选择文件夹”按钮）；运行时统一展开成文件。
       let runVideoPaths = videoPaths;
+      let sourceDirectories: string[] = [];
       if (extraction && videoPaths.length > 0) {
         try {
           const scanned = await scanFiles({
@@ -461,6 +465,13 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
           });
           if (scanned.files.length > 0) {
             runVideoPaths = scanned.files.map((file) => file.path);
+            sourceDirectories = directoriesForPaths(
+              [
+                ...(useTaskStore.getState().routingDirectories[task.id] ?? []),
+                ...(scanned.directories ?? []),
+              ],
+              runVideoPaths,
+            );
           } else {
             useRunStore.setState({
               status: "failed",
@@ -484,6 +495,7 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
           taskId: task.id,
           recipe: nextRecipe,
           paths: runVideoPaths,
+          sourceDirectories,
           autoFillOriginal: true,
         });
         return;
@@ -698,28 +710,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                       recipe: {task.recipe_id}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    data-testid="run-task"
-                    onClick={() => void runTask()}
-                    disabled={!canRun}
-                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {running ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Play className="h-4 w-4" />
-                    )}
-                    {batchActive
-                      ? batchItems.length > 0
-                        ? `批量处理中 · ${batchDone}/${batchItems.length}`
-                        : "其他任务批量处理中…"
-                      : running
-                        ? "运行中…"
-                        : batchMode || batchItems.length > 1
-                          ? `批量处理 ${Math.max(videoPaths.length, batchItems.length)} 个视频`
-                          : "开始运行"}
-                  </button>
                 </div>
 
                 <div className="mt-4">
@@ -976,6 +966,31 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
           </div>
         )}
       </div>
+
+      {task && (
+        <button
+          type="button"
+          data-testid="run-task"
+          onClick={() => void runTask()}
+          disabled={!canRun}
+          className="fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+        >
+          {running ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Play className="h-4 w-4" />
+          )}
+          {batchActive
+            ? batchItems.length > 0
+              ? `批量处理中 · ${batchDone}/${batchItems.length}`
+              : "其他任务批量处理中…"
+            : running
+              ? "运行中…"
+              : batchMode || batchItems.length > 1
+                ? `批量处理 ${Math.max(videoPaths.length, batchItems.length)} 个视频`
+                : "开始运行"}
+        </button>
+      )}
     </div>
   );
 }

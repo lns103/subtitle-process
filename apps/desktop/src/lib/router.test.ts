@@ -10,9 +10,9 @@ describe("hash 路由", () => {
 
   it("解析编辑器与配方 id", () => {
     expect(parseRoute("#/editor")).toEqual({ name: "editor", recipeId: null });
-    expect(parseRoute("#/editor/video_to_clean_srt")).toEqual({
+    expect(parseRoute("#/editor/batch_video_to_clean_srt")).toEqual({
       name: "editor",
-      recipeId: "video_to_clean_srt",
+      recipeId: "batch_video_to_clean_srt",
     });
     expect(parseRoute("#/editor/a%20b")).toEqual({ name: "editor", recipeId: "a b" });
   });
@@ -41,9 +41,9 @@ describe("hash 路由", () => {
   });
 
   it("解析任务深链接", () => {
-    expect(parseRoute("#/task/video_to_clean_srt")).toEqual({
+    expect(parseRoute("#/task/batch_video_to_clean_srt")).toEqual({
       name: "task",
-      taskId: "video_to_clean_srt",
+      taskId: "batch_video_to_clean_srt",
     });
     expect(parseRoute("#/task/a%20b/")).toEqual({ name: "task", taskId: "a b" });
     expect(parseRoute("#/task/")).toEqual({ name: "home" });

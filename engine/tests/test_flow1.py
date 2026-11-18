@@ -79,7 +79,7 @@ def _request(method: str, params: dict[str, Any] | None = None) -> dict[str, Any
     return payload
 
 
-async def test_video_to_clean_srt_flow_and_restart(tmp_path: Path) -> None:
+async def test_batch_video_to_clean_srt_flow_and_restart(tmp_path: Path) -> None:
     video = _make_video(tmp_path / "EP01.mkv", tmp_path)
     data_dir = tmp_path / "data"
     messages: list[dict[str, Any]] = []
@@ -92,7 +92,7 @@ async def test_video_to_clean_srt_flow_and_restart(tmp_path: Path) -> None:
             _request(
                 "pipeline.run",
                 {
-                    "recipe_id": "video_to_clean_srt",
+                    "recipe_id": "batch_video_to_clean_srt",
                     "inputs": [str(video)],
                     "project_id": project["id"],
                 },
@@ -108,7 +108,7 @@ async def test_video_to_clean_srt_flow_and_restart(tmp_path: Path) -> None:
         assert refreshed["outputs"], "项目应记录导出产物"
         output = Path(refreshed["outputs"][-1]["path"])
         assert output.is_file()
-        assert output.name.endswith(".clean.srt")
+        assert output.name.endswith(".srt")
         text = output.read_text(encoding="utf-8")
         assert "[BEN]" not in text
         assert "<b>" not in text

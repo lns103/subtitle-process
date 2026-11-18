@@ -175,7 +175,7 @@ class ValidateSubtitles(Step):
 
 class ExportOptions(BaseModel):
     format: Literal["srt", "ass", "vtt"] = Field(default="srt", description="输出格式")
-    suffix: str = Field(default=".clean", description="追加到文件名后的后缀")
+    suffix: str = Field(default="", description="追加到文件名后的后缀；默认不追加")
     output_dir: str = Field(
         default="", description="输出目录；留空写入工作区 output/"
     )

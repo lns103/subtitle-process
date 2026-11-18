@@ -1,7 +1,8 @@
 import { createProject, getJobStatus, getProject, runRecipePayload } from "./api";
 import { onEngineEvent } from "./events";
+import { batchProjectName } from "./inputRouting";
 import type { RecipeDefinition } from "./models";
-import { pickOriginalSubtitle } from "./tasks";
+import { pickOriginalSubtitles } from "./tasks";
 import { useBatchStore } from "../stores/batchStore";
 import { useProjectStore } from "../stores/projectStore";
 import { useRunStore } from "../stores/runStore";
@@ -72,43 +73,67 @@ function waitForRun(runId: string, index: number): Promise<RunOutcome> {
   });
 }
 
-async function resolveProject(mediaPath: string): Promise<string> {
-  const existing = useProjectStore
-    .getState()
-    .projects.find((project) => project.media_path === mediaPath);
-  if (existing) return existing.id;
-  const project = await createProject({ media_path: mediaPath });
-  useProjectStore.getState().applyUpdate(project);
-  return project.id;
-}
-
 export interface VideoBatchOptions {
   taskId: string;
   recipe: RecipeDefinition;
   paths: string[];
+  /** 拖入的文件夹（来自 files.scan）；用于批量项目命名。 */
+  sourceDirectories?: string[];
+  /** 显式指定项目名；缺省按文件夹或第一个视频命名。 */
+  projectName?: string;
   /** 提取流程结束后把干净字幕填到双语任务的原版槽。 */
   autoFillOriginal?: boolean;
 }
 
 /**
- * 顺序处理多个视频：每个视频一个项目 + 一个 run。
+ * 顺序处理多个视频：整批共用一个项目，每个视频一个 run。
+ * 项目名优先使用拖入的文件夹名，否则使用第一个视频的文件名。
  * 失败只标记当前项并继续；遇到人工审核时暂停，审核完成后自动继续。
  */
 export async function runVideoBatch(options: VideoBatchOptions): Promise<void> {
-  const { taskId, recipe, paths, autoFillOriginal = false } = options;
+  const {
+    taskId,
+    recipe,
+    paths,
+    sourceDirectories = [],
+    projectName,
+    autoFillOriginal = false,
+  } = options;
   useBatchStore.getState().start(taskId, paths);
 
-  let lastProjectId: string | null = null;
+  if (paths.length === 0) {
+    useBatchStore.getState().finish();
+    return;
+  }
+
+  let batchProjectId: string | null = null;
   const allOutputs: string[] = [];
+  const seenOutputs = new Set<string>();
 
   try {
+    let projectId: string;
+    try {
+      const project = await createProject({
+        name: projectName?.trim() || batchProjectName(paths, sourceDirectories),
+        media_path: paths[0],
+      });
+      projectId = project.id;
+      batchProjectId = projectId;
+      useProjectStore.getState().applyUpdate(project);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      for (let index = 0; index < paths.length; index += 1) {
+        useBatchStore.getState().update(index, { status: "failed", error: message });
+      }
+      return;
+    }
+
     for (let index = 0; index < paths.length; index += 1) {
       if (!useBatchStore.getState().active) break;
       const path = paths[index];
       useBatchStore.getState().update(index, { status: "running" });
 
       try {
-        const projectId = await resolveProject(path);
         useRunStore.getState().reset();
         const result = await runRecipePayload({
           recipe,
@@ -136,7 +161,10 @@ export async function runVideoBatch(options: VideoBatchOptions): Promise<void> {
         try {
           const project = await getProject(projectId);
           useProjectStore.getState().applyUpdate(project);
-          outputs = project.outputs.map((output) => output.path);
+          outputs = project.outputs
+            .map((output) => output.path)
+            .filter((output) => !seenOutputs.has(output));
+          for (const output of outputs) seenOutputs.add(output);
         } catch (error) {
           useBatchStore.getState().update(index, {
             status: "failed",
@@ -146,7 +174,6 @@ export async function runVideoBatch(options: VideoBatchOptions): Promise<void> {
         }
 
         allOutputs.push(...outputs);
-        lastProjectId = projectId;
         useBatchStore.getState().update(index, {
           status: "done",
           outputs,
@@ -162,13 +189,13 @@ export async function runVideoBatch(options: VideoBatchOptions): Promise<void> {
   } finally {
     useBatchStore.getState().finish();
     void useProjectStore.getState().refresh();
-    if (lastProjectId) {
-      void useProjectStore.getState().select(lastProjectId);
-      if (autoFillOriginal) useProjectStore.getState().preferProject(lastProjectId);
+    if (batchProjectId) {
+      void useProjectStore.getState().select(batchProjectId);
+      if (autoFillOriginal) useProjectStore.getState().preferProject(batchProjectId);
     }
     if (autoFillOriginal) {
-      const original = pickOriginalSubtitle(allOutputs);
-      if (original) useTaskStore.getState().autoFillOriginal([original]);
+      const originals = pickOriginalSubtitles(allOutputs);
+      if (originals.length > 0) useTaskStore.getState().autoFillOriginal(originals);
     }
   }
 }

@@ -1,4 +1,4 @@
-id: translated_to_bilingual
+id: batch_translated_to_bilingual
 name: 译文 SRT → 双语 ASS
 version: 2
 description: 校验译文 → 与原版字幕合并双语 ASS → 导出。

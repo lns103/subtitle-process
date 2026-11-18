@@ -29,6 +29,8 @@ interface TaskState {
   tracks: Record<string, TrackSelection>;
   /** taskId -> 最近一次通用槽分发结果。 */
   lastRouting: Record<string, RoutingResult | null>;
+  /** taskId -> 最近一次通用分发包含的文件夹；用于批量项目命名。 */
+  routingDirectories: Record<string, string[]>;
   /** taskId -> 分发前的槽位快照，用于撤销。 */
   routeSnapshot: Record<string, Record<string, string[]> | null>;
 
@@ -40,6 +42,8 @@ interface TaskState {
   setTrackSelection: (taskId: string, selection: TrackSelection) => void;
   /** 通用槽：按规则把文件/文件夹分发到输入槽。 */
   applyRouting: (taskId: string, paths: string[], overwrite?: boolean) => RoutingResult | null;
+  /** 记录最近一次通用分发包含的文件夹。 */
+  setRoutingDirectories: (taskId: string, directories: string[]) => void;
   /** 把某个已选文件从 fromInput 移到 toInput（拖动改槽）。 */
   moveSlotPath: (taskId: string, fromInput: string, toInput: string, path: string) => void;
   undoRouting: (taskId: string) => void;
@@ -59,6 +63,7 @@ const INITIAL = {
   touched: {} as Record<string, Record<string, boolean>>,
   tracks: {} as Record<string, TrackSelection>,
   lastRouting: {} as Record<string, RoutingResult | null>,
+  routingDirectories: {} as Record<string, string[]>,
   routeSnapshot: {} as Record<string, Record<string, string[]> | null>,
 };
 
@@ -117,6 +122,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           [taskId]: { ...(state.autofilled[taskId] ?? {}), [inputName]: false },
         },
         lastRouting: { ...state.lastRouting, [taskId]: null },
+        routingDirectories: { ...state.routingDirectories, [taskId]: [] },
         routeSnapshot: { ...state.routeSnapshot, [taskId]: null },
       };
     }),
@@ -137,6 +143,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         [taskId]: { ...(state.autofilled[taskId] ?? {}), [inputName]: false },
       },
       lastRouting: { ...state.lastRouting, [taskId]: null },
+      routingDirectories: { ...state.routingDirectories, [taskId]: [] },
       routeSnapshot: { ...state.routeSnapshot, [taskId]: null },
     })),
 
@@ -180,6 +187,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     return result;
   },
 
+  setRoutingDirectories: (taskId, directories) =>
+    set((state) => ({
+      routingDirectories: { ...state.routingDirectories, [taskId]: unique(directories) },
+    })),
+
   undoRouting: (taskId) =>
     set((state) => {
       const snapshot = state.routeSnapshot[taskId];
@@ -187,6 +199,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       return {
         slots: { ...state.slots, [taskId]: snapshot },
         lastRouting: { ...state.lastRouting, [taskId]: null },
+        routingDirectories: { ...state.routingDirectories, [taskId]: [] },
         routeSnapshot: { ...state.routeSnapshot, [taskId]: null },
       };
     }),
@@ -265,6 +278,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         [task.id]: { ...(state.autofilled[task.id] ?? {}), [inputName]: true },
       },
       lastRouting: { ...state.lastRouting, [task.id]: null },
+      routingDirectories: { ...state.routingDirectories, [task.id]: [] },
       routeSnapshot: { ...state.routeSnapshot, [task.id]: null },
     });
   },

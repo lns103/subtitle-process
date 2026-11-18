@@ -12,8 +12,8 @@ from subtitle_engine.core.validation import validate_recipe
 from subtitle_engine.rpc.errors import RECIPE_INVALID, JsonRpcError
 
 BUILTINS = {
-    "video_to_clean_srt",
-    "translated_to_bilingual",
+    "batch_video_to_clean_srt",
+    "batch_translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",
     "fn_extract_subtitles",
@@ -38,7 +38,7 @@ def test_lists_four_builtins(library: RecipeLibrary) -> None:
     summaries = library.list()
     assert {item.id for item in summaries} == BUILTINS
     assert all(item.builtin for item in summaries)
-    assert library.is_builtin("video_to_clean_srt")
+    assert library.is_builtin("batch_video_to_clean_srt")
 
 
 def test_all_builtins_validate(library: RecipeLibrary, tmp_path: Path) -> None:
@@ -50,12 +50,12 @@ def test_all_builtins_validate(library: RecipeLibrary, tmp_path: Path) -> None:
 
 
 def test_builtin_is_read_only(library: RecipeLibrary) -> None:
-    recipe = library.get("video_to_clean_srt")
+    recipe = library.get("batch_video_to_clean_srt")
     with pytest.raises(JsonRpcError) as excinfo:
         library.save(recipe)
     assert excinfo.value.code == RECIPE_INVALID
     with pytest.raises(JsonRpcError):
-        library.delete("video_to_clean_srt")
+        library.delete("batch_video_to_clean_srt")
 
 
 def test_user_recipe_roundtrip(library: RecipeLibrary) -> None:

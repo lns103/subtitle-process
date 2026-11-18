@@ -5,7 +5,7 @@ describe("batchStore", () => {
   beforeEach(() => useBatchStore.getState().reset());
 
   it("start 为每个视频创建排队项", () => {
-    useBatchStore.getState().start("video_to_clean_srt", ["C:/a.mkv", "C:/b.mkv"]);
+    useBatchStore.getState().start("batch_video_to_clean_srt", ["C:/a.mkv", "C:/b.mkv"]);
     const state = useBatchStore.getState();
     expect(state.active).toBe(true);
     expect(state.items.map((item) => item.status)).toEqual(["pending", "pending"]);
@@ -13,7 +13,7 @@ describe("batchStore", () => {
   });
 
   it("update 只修改指定项并保留其他字段", () => {
-    useBatchStore.getState().start("video_to_clean_srt", ["C:/a.mkv", "C:/b.mkv"]);
+    useBatchStore.getState().start("batch_video_to_clean_srt", ["C:/a.mkv", "C:/b.mkv"]);
     useBatchStore.getState().update(0, { status: "done", outputs: ["C:/out/a.clean.srt"] });
     const [first, second] = useBatchStore.getState().items;
     expect(first?.status).toBe("done");
@@ -22,7 +22,7 @@ describe("batchStore", () => {
   });
 
   it("finish 保留队列用于展示，reset 清空", () => {
-    useBatchStore.getState().start("video_to_clean_srt", ["C:/a.mkv"]);
+    useBatchStore.getState().start("batch_video_to_clean_srt", ["C:/a.mkv"]);
     useBatchStore.getState().finish();
     expect(useBatchStore.getState().active).toBe(false);
     expect(useBatchStore.getState().items).toHaveLength(1);

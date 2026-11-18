@@ -10,12 +10,12 @@
 
 1. **视频 → 规范字幕**
    拖入视频 → ffprobe 分析 → 提取内嵌字幕（FFmpeg / MKVToolNix）→ 规范化（去括号/人名/标签、合并短句）→
-   SDH 规则扫描 →（可选）AI 审核 → 校验 → 导出 `clean/<stem>.clean.srt`。
+   SDH 规则扫描 →（可选）AI 审核 → 校验 → 导出 `<stem>.srt`。
 2. **译文 → 双语 ASS**
    用 LinguaGacha 等工具人工翻译后，把译文 SRT 拖回 → 按文件名 + 时间轴相似度匹配原项目 →
    校验 → 合并为双行 ASS（保留重复片段字体对齐）→ 导出 `output/<stem>.zh&en.ass`。
 
-流水线本身是**自由连线的 DAG**：内置 4 个只读模板（`video_to_clean_srt`、`translated_to_bilingual`、
+流水线本身是**自由连线的 DAG**：内置 4 个只读模板（`batch_video_to_clean_srt`、`batch_translated_to_bilingual`、
 `batch_normalize`、`batch_shift_fps`），可在编辑器中复制后任意编排。步骤参数由 Pydantic
 `model_json_schema()` 自动生成表单，前端不硬编码。
 
@@ -78,7 +78,7 @@ cd engine
 uv sync
 uv run pytest -q                          # 全量测试
 uv run python -m subtitle_engine --rpc stdio
-uv run python -m subtitle_engine run src/subtitle_engine/recipes/video_to_clean_srt.yaml --input .\demo.mkv
+uv run python -m subtitle_engine run src/subtitle_engine/recipes/batch_video_to_clean_srt.yaml --input .\demo.mkv
 ```
 
 ### 桌面端

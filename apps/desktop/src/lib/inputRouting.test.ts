@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  batchProjectName,
+  directoriesForPaths,
   folderLooksTranslated,
   hasLanguageSuffix,
   routePaths,
@@ -7,8 +9,8 @@ import {
 import type { TaskSpec } from "./models";
 
 const BILINGUAL: TaskSpec = {
-  id: "translated_to_bilingual",
-  recipe_id: "translated_to_bilingual",
+  id: "batch_translated_to_bilingual",
+  recipe_id: "batch_translated_to_bilingual",
   kind: "workflow",
   group: "主流程",
   order: 20,
@@ -23,8 +25,8 @@ const BILINGUAL: TaskSpec = {
 
 const VIDEO_TASK: TaskSpec = {
   ...BILINGUAL,
-  id: "video_to_clean_srt",
-  recipe_id: "video_to_clean_srt",
+  id: "batch_video_to_clean_srt",
+  recipe_id: "batch_video_to_clean_srt",
   inputs: [
     { name: "video", label: "视频文件", kind: "file", accept: [".mkv", ".mp4"], required: true },
   ],
@@ -58,6 +60,30 @@ describe("inputRouting", () => {
     const result = routePaths(BILINGUAL, {}, ["D:/show/EP01"]);
     expect(result.assigned).toEqual([{ input: "original", paths: ["D:/show/EP01"] }]);
     expect(result.ambiguous).toEqual(["D:/show/EP01"]);
+  });
+
+  it("批量项目优先使用拖入的文件夹名", () => {
+    expect(
+      batchProjectName(
+        ["D:/剧集/第一季/EP01.mkv", "D:/剧集/第一季/EP02.mkv"],
+        ["D:/剧集/第一季"],
+      ),
+    ).toBe("第一季");
+  });
+
+  it("批量项目没有文件夹时使用第一个视频名", () => {
+    expect(batchProjectName(["D:/a/EP01.mkv", "D:/b/EP02.mkv"])).toBe("EP01");
+    expect(batchProjectName([])).toBe("未命名项目");
+  });
+
+  it("只使用确实包含视频的文件夹名", () => {
+    const directories = ["D:/剧集/第一季", "D:/旧目录"];
+    expect(
+      directoriesForPaths(directories, [
+        "D:\\剧集\\第一季\\EP01.mkv",
+        "D:/剧集/第一季/EP02.mkv",
+      ]),
+    ).toEqual(["D:/剧集/第一季"]);
   });
 
   it("视频与字幕按扩展名分流", () => {

@@ -227,9 +227,9 @@ class ProjectManager:
             )
         if run.status != "done":
             return project.status
-        if run.recipe_id == "video_to_clean_srt":
+        if run.recipe_id == "batch_video_to_clean_srt":
             return "waiting_translation" if outputs else "failed"
-        if run.recipe_id == "translated_to_bilingual":
+        if run.recipe_id == "batch_translated_to_bilingual":
             return "done"
         if project.status == "waiting_translation":
             return project.status

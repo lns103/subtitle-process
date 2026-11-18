@@ -17,7 +17,9 @@ import {
   layoutGraph,
   nodesAndEdgesFromRecipe,
   portCompatible,
+  RECIPE_INPUT_HANDLE,
   recipeFromGraph,
+  recipeInputNodesAndEdges,
   stripRecipeUi,
   topologicalOrder,
   uniqueStepId,
@@ -275,6 +277,79 @@ describe("配方与画布互转", () => {
     const extract = nodes.find((item) => item.id === "extract");
     expect(probe && extract && extract.position.x > probe.position.x).toBe(true);
     expect(edges).toHaveLength(3);
+  });
+
+  it("同一对步骤按兼容端口画出多条边", () => {
+    const scan = spec(
+      "sub.sdh_scan",
+      {},
+      { candidates: port("sdh_candidates"), subs: port("srt") },
+    );
+    const review = spec(
+      "human.review",
+      { subs: port("srt"), candidates: port("sdh_candidates", false) },
+      { subs: port("srt") },
+    );
+    const scanReview: RecipeDefinition = {
+      id: "scan_review",
+      name: "扫描审核",
+      version: 1,
+      description: "",
+      builtin: false,
+      inputs: [
+        { name: "video", kind: "file", accept: [".mkv"], required: true },
+        {
+          name: "original",
+          label: "原版字幕",
+          kind: "files",
+          accept: [".srt"],
+          required: true,
+          bind: [{ step: "review", port: "candidates" }],
+        },
+      ],
+      steps: [
+        { id: "scan", uses: "sub.sdh_scan", needs: [], when: null, with: {}, ui: { x: 0, y: 0 } },
+        {
+          id: "review",
+          uses: "human.review",
+          needs: ["scan"],
+          when: null,
+          with: {},
+          ui: { x: 320, y: 0 },
+        },
+      ],
+      outputs: [],
+      ui: {},
+    };
+
+    const { nodes, edges } = nodesAndEdgesFromRecipe(scanReview, [scan, review]);
+    expect(edges.map((edge) => edge.id)).toEqual(
+      expect.arrayContaining([
+        edgeId("scan", "candidates", "review", "candidates"),
+        edgeId("scan", "subs", "review", "subs"),
+      ]),
+    );
+
+    const inputGraph = recipeInputNodesAndEdges(scanReview.inputs, nodes, edges);
+    expect(inputGraph.nodes.map((node) => node.data.name)).toEqual(["video", "original"]);
+    expect(inputGraph.nodes[1].data).toMatchObject({
+      label: "原版字幕",
+      bound: true,
+    });
+    expect(inputGraph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "input:video",
+          target: "scan",
+          targetHandle: RECIPE_INPUT_HANDLE,
+        }),
+        expect.objectContaining({
+          source: "input:original",
+          target: "review",
+          targetHandle: "candidates",
+        }),
+      ]),
+    );
   });
 
   it("recipeFromGraph 回写 needs/options/ui 并生成叶子输出", () => {

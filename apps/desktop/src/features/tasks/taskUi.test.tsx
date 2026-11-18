@@ -25,8 +25,8 @@ vi.mock("../../lib/rpc", () => ({
 }));
 
 const BILINGUAL: TaskSpec = {
-  id: "translated_to_bilingual",
-  recipe_id: "translated_to_bilingual",
+  id: "batch_translated_to_bilingual",
+  recipe_id: "batch_translated_to_bilingual",
   kind: "workflow",
   group: "字幕",
   order: 20,
@@ -41,7 +41,7 @@ const BILINGUAL: TaskSpec = {
 
 const EXTRACT: TaskSpec = {
   id: "fn_extract_subtitles",
-  recipe_id: "video_to_clean_srt",
+  recipe_id: "batch_video_to_clean_srt",
   kind: "function",
   group: "媒体",
   order: 5,
@@ -71,12 +71,12 @@ describe("TaskPicker", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-card-translated_to_bilingual")).toBeTruthy();
+    expect(screen.getByTestId("task-card-batch_translated_to_bilingual")).toBeTruthy();
     expect(screen.queryByTestId("task-card-fn_extract_subtitles")).toBeNull();
 
     await user.click(screen.getByTestId("task-tab-function"));
     expect(screen.getByTestId("task-card-fn_extract_subtitles")).toBeTruthy();
-    expect(screen.queryByTestId("task-card-translated_to_bilingual")).toBeNull();
+    expect(screen.queryByTestId("task-card-batch_translated_to_bilingual")).toBeNull();
   });
 });
 

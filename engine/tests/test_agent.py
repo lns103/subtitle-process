@@ -223,7 +223,7 @@ async def _run(server: RpcServer, recipe: Recipe) -> dict[str, Any]:
 
 
 def _exported_text(tmp_path: Path) -> str:
-    files = sorted((tmp_path / "data").rglob("*.clean.srt"))
+    files = sorted((tmp_path / "data" / "workspace" / "output").glob("*.srt"))
     assert files, "应生成导出文件"
     return files[-1].read_text(encoding="utf-8")
 

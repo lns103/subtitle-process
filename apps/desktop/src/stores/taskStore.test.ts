@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listTasks } from "../lib/api";
 import type { TaskSpec } from "../lib/models";
-import { pickOriginalSubtitle } from "../lib/tasks";
+import { pickOriginalSubtitle, pickOriginalSubtitles } from "../lib/tasks";
 import { useTaskStore } from "./taskStore";
 
 vi.mock("../lib/api", () => ({
@@ -11,8 +11,8 @@ vi.mock("../lib/api", () => ({
 const listMock = vi.mocked(listTasks);
 
 const EXTRACTION: TaskSpec = {
-  id: "video_to_clean_srt",
-  recipe_id: "video_to_clean_srt",
+  id: "batch_video_to_clean_srt",
+  recipe_id: "batch_video_to_clean_srt",
   kind: "workflow",
   group: "视频",
   order: 10,
@@ -25,8 +25,8 @@ const EXTRACTION: TaskSpec = {
 };
 
 const BILINGUAL: TaskSpec = {
-  id: "translated_to_bilingual",
-  recipe_id: "translated_to_bilingual",
+  id: "batch_translated_to_bilingual",
+  recipe_id: "batch_translated_to_bilingual",
   kind: "workflow",
   group: "字幕",
   order: 20,
@@ -61,6 +61,21 @@ describe("taskStore", () => {
 
     const state = useTaskStore.getState();
     expect(state.slots[BILINGUAL.id]?.original).toEqual(["C:/out/Show.clean.srt"]);
+    expect(state.autofilled[BILINGUAL.id]?.original).toBe(true);
+  });
+
+  it("autoFillOriginal 填充多个原版字幕", () => {
+    useTaskStore.setState({ tasks: [EXTRACTION, BILINGUAL] });
+    useTaskStore.getState().autoFillOriginal([
+      "C:/out/EP01.clean.srt",
+      "C:/out/EP02.clean.srt",
+    ]);
+
+    const state = useTaskStore.getState();
+    expect(state.slots[BILINGUAL.id]?.original).toEqual([
+      "C:/out/EP01.clean.srt",
+      "C:/out/EP02.clean.srt",
+    ]);
     expect(state.autofilled[BILINGUAL.id]?.original).toBe(true);
   });
 
@@ -141,6 +156,29 @@ describe("taskStore", () => {
       original: ["C:/show/B.zh.srt"],
       translated: ["C:/show/A.srt"],
     });
+  });
+});
+
+describe("pickOriginalSubtitles", () => {
+  it("返回全部 clean 字幕并保持顺序", () => {
+    expect(
+      pickOriginalSubtitles([
+        "C:/a/EP02.clean.srt",
+        "C:/a/EP01.clean.srt",
+        "C:/a/EP01.clean.srt",
+        "C:/a/EP01.ass",
+      ]),
+    ).toEqual(["C:/a/EP02.clean.srt", "C:/a/EP01.clean.srt"]);
+  });
+
+  it("没有 clean 时回退到全部 srt", () => {
+    expect(
+      pickOriginalSubtitles(["C:/a/EP01.ass", "C:/a/EP01.srt", "C:/a/EP02.srt"]),
+    ).toEqual(["C:/a/EP01.srt", "C:/a/EP02.srt"]);
+  });
+
+  it("没有字幕时返回空数组", () => {
+    expect(pickOriginalSubtitles(["C:/a/EP01.ass"])).toEqual([]);
   });
 });
 

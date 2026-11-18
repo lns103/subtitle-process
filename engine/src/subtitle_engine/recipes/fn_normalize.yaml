@@ -28,7 +28,7 @@ steps:
     needs: [normalize]
     with:
       format: srt
-      suffix: ".clean"
+      suffix: ""
       output_dir: ""
       backup: true
 outputs:

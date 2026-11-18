@@ -17,7 +17,7 @@ steps:
   - id: sdh_scan
     uses: sub.sdh_scan
     with:
-      rules: [bracketed, parenthetical, music, speaker, uppercase, arrow, ellipsis_action]
+      rules: [bracketed, parenthetical, speaker, uppercase, arrow, ellipsis_action]
       uppercase_min_length: 4
 outputs:
   - from: sdh_scan

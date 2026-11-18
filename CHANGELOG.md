@@ -4,13 +4,25 @@
 
 ## Unreleased — Pipeline v2
 
+### SDH 默认规则、批量项目与悬浮运行按钮
+
+#### 变更
+- **SDH 默认不含音乐符号**：`sub.sdh_scan` 与内置视频/扫描配方默认启用 `bracketed / parenthetical / speaker / uppercase / arrow / ellipsis_action`，不再默认标记 `♪ ♫ ♬ ♩` 或“音乐”行；仍可在步骤选项中手动勾选 `music`。
+- **批量视频共用一个项目**：一次投入多个视频时只创建一个项目，每个视频对应一个 run；项目名优先使用拖入的文件夹名，否则使用第一个视频的文件名。`files.scan` 新增 `directories` 返回，通用投放会保留文件夹信息供命名。
+- **执行按钮悬浮**：首页任务页的「开始运行 / 批量处理」按钮移到右下角固定悬浮，滚动时始终可用。
+
+#### 修复
+- **双语自动填充只填最后一个**：新增 `pickOriginalSubtitles`，批量视频产生的全部干净 SRT 会按顺序填入双语任务「原版」槽；HandoffCard 与单次运行结束的自动填充也不再只取最后一个。
+- **干净输出默认不加后缀**：`sub.export` 的 `suffix` 默认改为空，内置 `batch_video_to_clean_srt`、`fn_export`、`fn_normalize` 不再生成 `.clean.srt`，默认输出 `<stem>.srt`；仍可在步骤选项中自定义后缀。
+- **配方画布连线不完整**：同一对步骤现在按全部兼容端口画线（例如 `sdh_scan.candidates → human.review.candidates` 与 `sdh_scan.subs → human.review.subs` 会同时显示）；`recipe.inputs` 渲染为只读输入节点，有 `bind` 的连线到目标端口，无 `bind` 的显示为运行时注入入口。
+
 ### 任务化界面与命名输入
 
 #### 新增
 - **首页任务化**：主界面改为「先选任务，再显示输入槽」。`tasks.list` 汇总 `workflow` / `function` 两类任务，内置 2 条主流程与 10 个单项功能配方（提取字幕、规范、校验、SDH 扫描、帧率转换、时间轴平移、ASS 描边缩放、导出、双语合并、重命名）。
 - **通用投放与自动分发**：输入区新增“通用投放”槽，支持文件/文件夹；按扩展名、槽位语义、`.clean` / 语言后缀 / 文件夹名（含“译文”“翻译”或 `translated`）自动填入原版、译文或视频槽。文件夹会通过 `files.scan` 展开为逐个文件，分配结果可见、可撤销，默认不覆盖已有内容，可勾选“覆盖已有”和“包含子目录”。文件行可拖动到其他槽位改槽；单文件槽已有内容时交换而不是覆盖。
 - **命名输入绑定**：`RecipeInput` 新增 `label` / `multiple` / `bind`；`pipeline.run` 支持 `inputs_by_name`，按配方绑定把原版/译文等命名输入注入指定步骤端口，并纳入缓存键。
-- **双语合并双输入**：`translated_to_bilingual` 升级为 v2，固定「原版字幕 + 译文字幕」两个输入；`sub.merge_bilingual` 支持显式 `original` / `translated` 端口，保留旧的 `subs` 配对兜底。
+- **双语合并双输入**：`batch_translated_to_bilingual` 升级为 v2，固定「原版字幕 + 译文字幕」两个输入；`sub.merge_bilingual` 支持显式 `original` / `translated` 端口，保留旧的 `subs` 配对兜底。
 - **视频提取自动填入原版**：视频流程或提取功能完成后，把导出的干净 SRT 自动写入双语任务的「原版」槽；用户手动填写后不再覆盖。
 - **手动提取字幕语言选择**：新增 `media.inspect` RPC；提取任务会探测内嵌字幕轨道并展示语言/标题/默认/强制/SDH 多选，选中轨道写入 `tracks`。
 - **应用版本号**：首页与设置页展示 Tauri 应用版本、引擎版本与协议版本；Vite 构建时注入 `package.json` 版本作为回退。
@@ -32,7 +44,7 @@
 ### 批量处理、连接测试与项目删除
 
 #### 新增
-- **视频批量处理**：`video_to_clean_srt` 与 `fn_extract_subtitles` 的视频输入支持多选/文件夹展开；首页按视频顺序逐个创建项目并运行，失败项不阻断队列，遇到人工审核自动暂停并在审核完成后继续，队列进度跨页面保留。
+- **视频批量处理**：`batch_video_to_clean_srt` 与 `fn_extract_subtitles` 的视频输入支持多选/文件夹展开；首页把整批视频放进同一个项目、按视频顺序逐个运行，失败项不阻断队列，遇到人工审核自动暂停并在审核完成后继续，队列进度跨页面保留。
 - **最近项目删除**：项目列表每行新增删除按钮，二次确认后调用 `project.delete`，会同时清理项目工作区与已导出文件；运行中的项目禁止删除。
 - **关闭当前项目**：项目卡片右上角新增关闭按钮，只收起当前项目详情/HandoffCard，不删除数据；最近项目列表中的项目仍可再次打开。
 
@@ -91,7 +103,7 @@
 ### M5 SDH 规则与人工审核
 
 #### 新增
-- **SDH 规则扫描**：`domain/sdh.py` 提供 `bracketed` / `parenthetical` / `music` / `speaker` / `uppercase` / `arrow` / `ellipsis_action` 七类 reason code，只标记不修改；`sub.sdh_scan` 输出 `candidates` 端口（JSON）并透传原字幕，`video_to_clean_srt` 在 `sub.normalize` 后接入扫描与审核。
+- **SDH 规则扫描**：`domain/sdh.py` 提供 `bracketed` / `parenthetical` / `music` / `speaker` / `uppercase` / `arrow` / `ellipsis_action` 七类 reason code，只标记不修改；`sub.sdh_scan` 输出 `candidates` 端口（JSON）并透传原字幕，`batch_video_to_clean_srt` 在 `sub.normalize` 后接入扫描与审核。
 - **HITL 审核**：`human.review` 步骤把候选转为待审项并抛出暂停信号，Runner 将 run/项目状态置为 `waiting_review`，发出 `review.requested`；`review.list` / `review.submit` / `review.undo` 完成拉取、提交与撤销。决策支持接受/拒绝/人工改写，未决策项默认拒绝，接受删除时仅清空文本、绝不改时间轴。
 - **断点续跑**：SQLite 迁移至 v2，新增 `run_state` 保存配方、选项、已完成步骤产物与事件序号；应用重启后 `job.status`、`review.list` 仍可查询，提交后从暂停步骤继续执行且不重算上游。
 - **审计**：审核结果写 `<workspace>/reviews/audit-<run_id>.jsonl`（header + 逐条 before/after/action/confidence/reason），`review.undo` 依据审计生成撤销副本。
@@ -112,11 +124,11 @@
 ### M3 项目与配方
 
 #### 新增
-- **项目工作区与状态机**：`core/projects.py` 提供 `ProjectManager`，按 `<data_dir>/projects/<prj_id>/` 创建 `source / extracted / clean / translated / output / artifacts / reviews / logs`；项目元数据（媒体引用、fingerprint、语言对、run 历史、导出产物、状态）持久化到 SQLite `projects` 表。运行结束自动归档 `output/` 产物，`video_to_clean_srt` 成功后置为 `waiting_translation`，`translated_to_bilingual` 成功后置为 `done`，失败为 `failed`。
-- **配方库**：`core/recipe_library.py` + 4 个内置只读配方（`video_to_clean_srt`、`translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`）；用户配方存 `<data_dir>/recipes/<id>.json`，内置配方禁止覆盖/删除。M7 步骤（`sub.match_project` / `sub.merge_bilingual` / `sub.fps_convert`）与 `translate.linguagacha` 先提供端口/Schema 占位，执行时返回带 `milestone` 的明确错误。
+- **项目工作区与状态机**：`core/projects.py` 提供 `ProjectManager`，按 `<data_dir>/projects/<prj_id>/` 创建 `source / extracted / clean / translated / output / artifacts / reviews / logs`；项目元数据（媒体引用、fingerprint、语言对、run 历史、导出产物、状态）持久化到 SQLite `projects` 表。运行结束自动归档 `output/` 产物，`batch_video_to_clean_srt` 成功后置为 `waiting_translation`，`batch_translated_to_bilingual` 成功后置为 `done`，失败为 `failed`。
+- **配方库**：`core/recipe_library.py` + 4 个内置只读配方（`batch_video_to_clean_srt`、`batch_translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`）；用户配方存 `<data_dir>/recipes/<id>.json`，内置配方禁止覆盖/删除。M7 步骤（`sub.match_project` / `sub.merge_bilingual` / `sub.fps_convert`）与 `translate.linguagacha` 先提供端口/Schema 占位，执行时返回带 `milestone` 的明确错误。
 - **`pipeline.validate`**：`core/validation.py` 校验步骤 id 唯一、依赖存在、无环、未知实现、Options Schema、端口类型兼容、必填输入、when 表达式、导出目录不得越出工作区、导出文件名/路径冲突、配方输出端口与输入名重复；`pipeline.run` 启动前复用同一套规则，失败返回 `1001` + 完整报告。
 - **RPC 扩展**：`recipes.list/get/save/delete`、`pipeline.validate`、`project.create/list/get/delete`、`artifact.reveal`；`pipeline.run` 支持 `recipe_id`、按项目工作区运行并接受 `project` 上下文；新增 `project.updated` 事件。
-- **流程 1 前端**：拖入视频 → 创建项目 → 校验并运行 `video_to_clean_srt`；新增「最近项目」列表（重启后从 SQLite 恢复）与交接卡片（最新产物、打开所在文件夹、复制路径、提示拖回译文）。`runStore` 按 `run_id` 过滤迟到事件。
+- **流程 1 前端**：拖入视频 → 创建项目 → 校验并运行 `batch_video_to_clean_srt`；新增「最近项目」列表（重启后从 SQLite 恢复）与交接卡片（最新产物、打开所在文件夹、复制路径、提示拖回译文）。`runStore` 按 `run_id` 过滤迟到事件。
 - **测试**：新增项目 CRUD/状态机/删除清理、配方库只读与校验、`pipeline.validate` 规则、真实 MKV 的流程 1 端到端与引擎重启持久化测试。引擎测试增至 **164 个**，全部通过；前端 `tsc && vite build` 通过。
 
 ### M2 领域步骤

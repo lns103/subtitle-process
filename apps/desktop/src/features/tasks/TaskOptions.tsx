@@ -48,9 +48,9 @@ function languageLabel(language: string): string {
 
 function isExtractionTask(task: TaskSpec): boolean {
   return (
-    task.id === "video_to_clean_srt" ||
+    task.id === "batch_video_to_clean_srt" ||
     task.id === "fn_extract_subtitles" ||
-    task.recipe_id === "video_to_clean_srt"
+    task.recipe_id === "batch_video_to_clean_srt"
   );
 }
 

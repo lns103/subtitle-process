@@ -26,7 +26,7 @@ steps:
     needs: [validate]
     with:
       format: srt
-      suffix: ".fps"
+      suffix: ""
       output_dir: ""
       backup: true
 outputs:

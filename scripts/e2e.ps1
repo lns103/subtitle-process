@@ -7,9 +7,9 @@
     Flow:
       1. Generate a 4s MKV with an embedded English SRT track (ffmpeg).
       2. Create a project through the engine RPC layer (project.create).
-      3. Run video_to_clean_srt.yaml and assert a *.clean.srt artifact exists.
+      3. Run batch_video_to_clean_srt.yaml and assert a *.srt artifact exists.
       4. Generate a Chinese SRT with the same timeline, then run
-         translated_to_bilingual.yaml against the same project.
+         batch_translated_to_bilingual.yaml against the same project.
 
     The bilingual steps (sub.match_project / sub.merge_bilingual) are registered by
     the engine. Set SUBTITLE_E2E_SKIP_BILINGUAL=1 to run only the first phase.
@@ -41,8 +41,8 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $EngineDir = Join-Path $RepoRoot "engine"
 $RecipesDir = Join-Path $EngineDir "src\subtitle_engine\recipes"
-$VideoRecipe = Join-Path $RecipesDir "video_to_clean_srt.yaml"
-$BilingualRecipe = Join-Path $RecipesDir "translated_to_bilingual.yaml"
+$VideoRecipe = Join-Path $RecipesDir "batch_video_to_clean_srt.yaml"
+$BilingualRecipe = Join-Path $RecipesDir "batch_translated_to_bilingual.yaml"
 
 $WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ("subtitle-e2e-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 $DataDir = Join-Path $WorkDir "data"
@@ -218,7 +218,7 @@ raise SystemExit(asyncio.run(main()))
     $projectId = ([string]$projectId).Trim()
     Write-Host "    project id: $projectId"
 
-    Write-Step "Phase 1: video_to_clean_srt (CLI)"
+    Write-Step "Phase 1: batch_video_to_clean_srt (CLI)"
     $videoCode = Invoke-EngineRun @(
         "run", $VideoRecipe,
         "--input", $VideoPath,
@@ -226,22 +226,22 @@ raise SystemExit(asyncio.run(main()))
         "--project-id", $projectId
     )
     if ($videoCode -ne 0) {
-        throw "video_to_clean_srt failed with exit code $videoCode (see CLI output above)."
+        throw "batch_video_to_clean_srt failed with exit code $videoCode (see CLI output above)."
     }
 
     $cleanOutputs = @(
-        Get-ChildItem -LiteralPath $DataDir -Recurse -File -Filter "*.clean.srt" -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath (Join-Path $DataDir "projects\$projectId\output") -File -Filter "*.srt" -ErrorAction SilentlyContinue
     )
     if ($cleanOutputs.Count -eq 0) {
-        throw "Phase 1 finished but no *.clean.srt was produced under $DataDir"
+        throw "Phase 1 finished but no *.srt was produced under $DataDir\projects\$projectId\output"
     }
     foreach ($file in $cleanOutputs) {
         Write-Host "    clean SRT: $($file.FullName)"
     }
-    Write-Host "PASS: video_to_clean_srt" -ForegroundColor Green
+    Write-Host "PASS: batch_video_to_clean_srt" -ForegroundColor Green
 
     if ($env:SUBTITLE_E2E_SKIP_BILINGUAL -eq "1") {
-        Write-Skip "translated_to_bilingual (SUBTITLE_E2E_SKIP_BILINGUAL=1)"
+        Write-Skip "batch_translated_to_bilingual (SUBTITLE_E2E_SKIP_BILINGUAL=1)"
         Write-Host ""
         Write-Host "E2E finished: phase 1 passed, bilingual skipped." -ForegroundColor Green
     }
@@ -254,14 +254,14 @@ raise SystemExit(asyncio.run(main()))
             if ($env:SUBTITLE_E2E_STRICT_BILINGUAL -eq "1") {
                 throw "$message SUBTITLE_E2E_STRICT_BILINGUAL=1 is set."
             }
-            Write-Skip "translated_to_bilingual: $message"
+            Write-Skip "batch_translated_to_bilingual: $message"
             Write-Host "    known steps: $stepIds"
             Write-Host "    check steps/__init__.py registration and re-run."
             Write-Host ""
             Write-Host "E2E finished: phase 1 passed, bilingual skipped." -ForegroundColor Green
         }
         else {
-            Write-Step "Phase 2: translated_to_bilingual (CLI)"
+            Write-Step "Phase 2: batch_translated_to_bilingual (CLI)"
             Write-Utf8LfFile -Path $ChineseSrt -Lines @(
                 "1",
                 "00:00:00,200 --> 00:00:01,000",
@@ -284,7 +284,7 @@ raise SystemExit(asyncio.run(main()))
                 "--project-id", $projectId
             )
             if ($bilingualCode -ne 0) {
-                throw "translated_to_bilingual failed with exit code $bilingualCode (see CLI output above)."
+                throw "batch_translated_to_bilingual failed with exit code $bilingualCode (see CLI output above)."
             }
 
             $assOutputs = @(
@@ -296,7 +296,7 @@ raise SystemExit(asyncio.run(main()))
             foreach ($file in $assOutputs) {
                 Write-Host "    bilingual ASS: $($file.FullName)"
             }
-            Write-Host "PASS: translated_to_bilingual" -ForegroundColor Green
+            Write-Host "PASS: batch_translated_to_bilingual" -ForegroundColor Green
             Write-Host ""
             Write-Host "E2E finished: both phases passed." -ForegroundColor Green
         }

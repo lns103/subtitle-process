@@ -107,10 +107,10 @@ describe("RunView 流程分派", () => {
 
     await user.click(runButton);
 
-    await waitFor(() => expect(validateMock).toHaveBeenCalledWith("translated_to_bilingual", "prj_1"));
+    await waitFor(() => expect(validateMock).toHaveBeenCalledWith("batch_translated_to_bilingual", "prj_1"));
     await waitFor(() =>
       expect(runMock).toHaveBeenCalledWith({
-        recipeId: "translated_to_bilingual",
+        recipeId: "batch_translated_to_bilingual",
         inputs: ["C:/subs/Show.S01E01.zh.srt"],
         projectId: "prj_1",
       }),

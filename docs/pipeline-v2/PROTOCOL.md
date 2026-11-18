@@ -103,7 +103,7 @@ subtitle-engine.exe --rpc stdio
 | `steps.list` | `{}` | `StepSpec[]` | M0 | 步骤目录 + Options JSON Schema |
 | `tasks.list` | `{}` | `TaskSpec[]` | v2 | 首页任务目录：`workflow` / `function` 及输入槽定义 |
 | `media.inspect` | `path` | `MediaInfo` | v2 | 探测音视频轨道，供手动选择字幕语言/轨道 |
-| `files.scan` | `paths, accept?, recursive?` | `{files:[{path,name,extension,size}]}` | v2 | 展开文件/文件夹，供通用投放预览与分发 |
+| `files.scan` | `paths, accept?, recursive?` | `{files:[{path,name,extension,size}], directories:[path]}` | v2 | 展开文件/文件夹，供通用投放预览与分发 |
 | `pipeline.run` | `recipe?, recipe_id?, inputs?, inputs_by_name?, options?, project_id?, max_retries?, continue_on_error?, no_cache?` | `{job_id, run_id}` | M1/M3 | 启动；省略 recipe 时按 recipe_id 加载，再省略则运行内置示例 |
 | `job.status` | `job_id` | `Run` | M0 | 查询运行状态 |
 | `job.cancel` | `job_id` | `"ok"` | M0 | 取消并杀子进程树 |
@@ -212,9 +212,9 @@ subtitle-engine.exe --rpc stdio
     "streams": []
   },
   "language": {"source": "auto", "target": "zh"},
-  "runs": [{"id": "run_1a2b3c4d", "recipe_id": "video_to_clean_srt", "status": "done"}],
+  "runs": [{"id": "run_1a2b3c4d", "recipe_id": "batch_video_to_clean_srt", "status": "done"}],
   "outputs": [
-    {"path": "…/projects/prj_…/output/EP01.clean.srt", "kind": "srt", "step": "export"}
+    {"path": "…/projects/prj_…/output/EP01.srt", "kind": "srt", "step": "export"}
   ],
   "notes": "",
   "workspace": "…/projects/prj_1a2b3c4d5e6f"
@@ -225,15 +225,15 @@ subtitle-engine.exe --rpc stdio
 `project.list` 返回 `ProjectSummary`（含 `media_path`、`workspace`、`outputs` 路径数组）。
 
 状态机：`draft → running → waiting_review / waiting_translation → running → done`，失败为 `failed`。
-`video_to_clean_srt` 成功且登记到 `output/` 产物后置为 `waiting_translation`；
-`translated_to_bilingual` 成功置为 `done`。
+`batch_video_to_clean_srt` 成功且登记到 `output/` 产物后置为 `waiting_translation`；
+`batch_translated_to_bilingual` 成功置为 `done`。
 
 ### 4.5 `recipes.list` 返回（M3）
 
 ```json
 [
   {
-    "id": "video_to_clean_srt",
+    "id": "batch_video_to_clean_srt",
     "name": "视频 → 规范字幕",
     "version": 1,
     "description": "…",
@@ -243,9 +243,9 @@ subtitle-engine.exe --rpc stdio
 ]
 ```
 
-内置配方：`video_to_clean_srt`、`translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`。
+内置配方：`batch_video_to_clean_srt`、`batch_translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`。
 内置项 `builtin=true`，`recipes.save` / `recipes.delete` 会返回 `1001`；用户配方存
-`<data_dir>/recipes/<id>.json`。`translated_to_bilingual` / `batch_shift_fps` 依赖的
+`<data_dir>/recipes/<id>.json`。`batch_translated_to_bilingual` / `batch_shift_fps` 依赖的
 M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标明计划里程碑。
 
 ### 4.6 Agent 设置与 `agent.sdh_review`（M6）

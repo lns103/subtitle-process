@@ -35,6 +35,10 @@ export function createProject(params: {
   return engineCall<Project>("project.create", params);
 }
 
+export function renameProject(id: string, name: string): Promise<Project> {
+  return engineCall<Project>("project.rename", { id, name });
+}
+
 export function deleteProject(id: string): Promise<string> {
   return engineCall<string>("project.delete", { id });
 }

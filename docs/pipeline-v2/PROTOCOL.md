@@ -115,6 +115,7 @@ subtitle-engine.exe --rpc stdio
 | `project.create` | `name?, media_path?, language?` | `Project` | M3 | 创建工作区（扩展方法） |
 | `project.list` | `{}` | `ProjectSummary[]` | M3 | 项目库 |
 | `project.get` | `id` | `Project` | M3 | 详情 |
+| `project.rename` | `id, name` | `Project` | M3 | 修改项目显示名，工作区与产物路径不变 |
 | `project.delete` | `id` | `"ok"` | M3 | 删除工作区与 run 记录 |
 | `review.list` | `run_id` | `ReviewItem[]` | M5 | 待审项（扁平数组，含 `review_id` / `review_status`） |
 | `review.submit` | `run_id, decisions` | `"ok"` | M5 | 提交审核结果并恢复 run |

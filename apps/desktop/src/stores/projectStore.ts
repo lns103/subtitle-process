@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { deleteProject, getProject, listProjects } from "../lib/api";
+import { deleteProject, getProject, listProjects, renameProject } from "../lib/api";
 import type { Project, ProjectSummary } from "../lib/models";
 
 interface ProjectState {
@@ -13,7 +13,10 @@ interface ProjectState {
   preferredProjectId: string | null;
   refresh: () => Promise<void>;
   select: (id: string) => Promise<void>;
+  /** 直接打开已加载的项目卡片（例如刚创建、开始运行时）。 */
+  setActive: (project: Project) => void;
   applyUpdate: (project: Project) => void;
+  rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   clearActive: () => void;
   preferProject: (id: string | null) => void;
@@ -58,6 +61,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
     } catch (error) {
       set({ lastError: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
+  setActive: (project) => set({ active: project, lastError: null }),
+
+  rename: async (id, name) => {
+    try {
+      const project = await renameProject(id, name);
+      get().applyUpdate(project);
+      set((state) => ({
+        active: state.active?.id === project.id ? project : state.active,
+        lastError: null,
+      }));
+    } catch (error) {
+      set({ lastError: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
   },
 

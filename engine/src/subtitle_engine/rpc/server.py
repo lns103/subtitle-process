@@ -143,6 +143,7 @@ class RpcServer:
             "project.create": self._handle_project_create,
             "project.list": self._handle_project_list,
             "project.get": self._handle_project_get,
+            "project.rename": self._handle_project_rename,
             "project.delete": self._handle_project_delete,
             "review.list": self._handle_review_list,
             "review.submit": self._handle_review_submit,
@@ -608,6 +609,13 @@ class RpcServer:
 
     async def _handle_project_get(self, params: dict[str, Any]) -> dict[str, Any]:
         project = self._projects.get(_require_str(params, "id"))
+        return project.model_dump(mode="json", exclude_none=True)
+
+    async def _handle_project_rename(self, params: dict[str, Any]) -> dict[str, Any]:
+        project = self._projects.rename(
+            _require_str(params, "id"), _require_str(params, "name")
+        )
+        self._emit_project(project)
         return project.model_dump(mode="json", exclude_none=True)
 
     async def _handle_project_delete(self, params: dict[str, Any]) -> str:

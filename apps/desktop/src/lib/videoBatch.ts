@@ -120,6 +120,8 @@ export async function runVideoBatch(options: VideoBatchOptions): Promise<void> {
       projectId = project.id;
       batchProjectId = projectId;
       useProjectStore.getState().applyUpdate(project);
+      // 开始执行就显示项目卡片，产物与队列都挂在卡片里。
+      useProjectStore.getState().setActive(project);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       for (let index = 0; index < paths.length; index += 1) {

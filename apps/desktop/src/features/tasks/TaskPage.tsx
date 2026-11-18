@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Check,
-  Clipboard,
-  FolderOpen,
   Loader2,
   Play,
   RefreshCw,
@@ -15,7 +13,6 @@ import {
   getProject,
   getRecipe,
   listSteps,
-  revealPath,
   runRecipePayload,
   scanFiles,
 } from "../../lib/api";
@@ -116,7 +113,16 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     refresh,
   } = useProjectStore();
   const preferredProjectId = useProjectStore((state) => state.preferredProjectId);
-  const { runId, status, progress, logs, lastError, begin, reset } = useRunStore();
+  const {
+    runId,
+    projectId: runProjectId,
+    status,
+    progress,
+    logs,
+    lastError,
+    begin,
+    reset,
+  } = useRunStore();
 
   const [steps, setSteps] = useState<StepSpec[]>([]);
   const [recipe, setRecipe] = useState<RecipeDefinition | null>(null);
@@ -128,7 +134,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
   const [startedRunId, setStartedRunId] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<string[]>([]);
   const [artifactPaths, setArtifactPaths] = useState<string[]>([]);
-  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [outputError, setOutputError] = useState<string | null>(null);
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
@@ -414,7 +419,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     setArtifactPaths([]);
     artifactPathsRef.current = [];
     setOutputError(null);
-    setCopiedPath(null);
     handledRunRef.current = null;
     setStartedRunId(null);
     startedExtractionRef.current = false;
@@ -523,9 +527,11 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
         if (existing) {
           projectId = existing.id;
           setTargetProjectId(existing.id);
+          await useProjectStore.getState().select(existing.id);
         } else {
           const project = await createProject({ media_path: singleVideoPath });
           useProjectStore.getState().applyUpdate(project);
+          useProjectStore.getState().setActive(project);
           projectId = project.id;
           setTargetProjectId(project.id);
         }
@@ -545,9 +551,11 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
             .projects.find((project) => project.name === name);
           if (existing) {
             projectId = existing.id;
+            await useProjectStore.getState().select(existing.id);
           } else {
             const project = await createProject({ name });
             useProjectStore.getState().applyUpdate(project);
+            useProjectStore.getState().setActive(project);
             projectId = project.id;
           }
           setTargetProjectId(projectId);
@@ -594,24 +602,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     videoPaths,
   ]);
 
-  const handleCopy = useCallback(async (path: string) => {
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopiedPath(path);
-      window.setTimeout(() => setCopiedPath(null), 1500);
-    } catch (error) {
-      setOutputError(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
-
-  const handleReveal = useCallback(async (path: string) => {
-    try {
-      await revealPath(path);
-    } catch (error) {
-      setOutputError(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
-
   const displayOutputs = useMemo(() => {
     const merged = [...outputs];
     for (const path of artifactPaths) if (!merged.includes(path)) merged.push(path);
@@ -619,7 +609,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
   }, [artifactPaths, outputs]);
 
   const badge = engineBadge(engineStatus);
-  const latestOutput = displayOutputs[displayOutputs.length - 1] ?? null;
   const batchDone = batchItems.filter((item) => item.status === "done").length;
   const batchFailed = batchItems.filter((item) => item.status === "failed").length;
 
@@ -785,95 +774,6 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                   onReset={reset}
                 />
 
-                {batchItems.length > 0 && (
-                  <div
-                    data-testid="batch-queue"
-                    className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-medium text-slate-700">
-                        批量队列 · 完成 {batchDone}/{batchItems.length}
-                        {batchFailed > 0 && (
-                          <span className="text-rose-600"> · 失败 {batchFailed}</span>
-                        )}
-                      </p>
-                      {batchActive ? (
-                        <button
-                          type="button"
-                          onClick={() => useBatchStore.getState().finish()}
-                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
-                        >
-                          取消批量（当前视频完成后停止）
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => useBatchStore.getState().reset()}
-                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
-                        >
-                          清除队列
-                        </button>
-                      )}
-                    </div>
-                    <ul className="mt-2 space-y-1">
-                      {batchItems.map((item, index) => (
-                        <li
-                          key={`${item.path}:${index}`}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-xs"
-                        >
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            {item.status === "running" || item.status === "waiting_review" ? (
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-600" />
-                            ) : item.status === "done" ? (
-                              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                            ) : item.status === "failed" ? (
-                              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-rose-600" />
-                            ) : (
-                              <span className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300" />
-                            )}
-                            <span className="truncate font-mono text-slate-700" title={item.path}>
-                              {index + 1}. {fileName(item.path)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {item.error && (
-                              <span className="max-w-[18rem] truncate text-rose-600" title={item.error}>
-                                {item.error}
-                              </span>
-                            )}
-                            {item.status === "done" && (
-                              <span className="text-emerald-700">
-                                {item.outputs.length > 0 ? `${item.outputs.length} 个产物` : "完成"}
-                              </span>
-                            )}
-                            {item.status === "waiting_review" && item.runId && (
-                              <button
-                                type="button"
-                                onClick={() => navigate({ name: "review", runId: item.runId! })}
-                                className="rounded bg-amber-600 px-2 py-0.5 text-[11px] text-white hover:bg-amber-500"
-                              >
-                                前往审核
-                              </button>
-                            )}
-                            {item.status === "pending" && (
-                              <span className="text-slate-400">排队中</span>
-                            )}
-                            {item.status === "running" && (
-                              <span className="text-sky-700">运行中</span>
-                            )}
-                            {item.status === "waiting_review" && (
-                              <span className="text-amber-700">等待审核</span>
-                            )}
-                            {item.status === "failed" && (
-                              <span className="text-rose-700">失败</span>
-                            )}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
                 {status === "waiting_review" && runId && (
                   <button
                     type="button"
@@ -884,65 +784,121 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
                   </button>
                 )}
 
-                {status === "done" && batchItems.length === 0 && (
-                  <div
-                    data-testid="task-outputs"
-                    className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3"
-                  >
-                    <p className="text-xs font-medium text-emerald-800">运行完成 · 产物</p>
-                    {displayOutputs.length === 0 ? (
-                      <p className="mt-1 text-xs text-emerald-800">
-                        未获取到产物路径，请查看运行日志或下方项目。
-                      </p>
-                    ) : (
-                      <>
-                        <ul className="mt-1 space-y-1">
-                          {displayOutputs.map((path) => (
-                            <li key={path} className="break-all font-mono text-xs text-slate-800">
-                              {path}
-                            </li>
-                          ))}
-                        </ul>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => latestOutput && void handleReveal(latestOutput)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
-                          >
-                            <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => latestOutput && void handleCopy(latestOutput)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs text-emerald-800 hover:bg-emerald-100"
-                          >
-                            {copiedPath === latestOutput ? (
-                              <Check className="h-3.5 w-3.5" />
-                            ) : (
-                              <Clipboard className="h-3.5 w-3.5" />
-                            )}
-                            {copiedPath === latestOutput ? "已复制" : "复制路径"}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                    {outputError && <p className="mt-2 text-xs text-red-600">{outputError}</p>}
-                  </div>
-                )}
               </section>
+            </div>
 
+            <div className="space-y-5">
               {active && (
                 <HandoffCard
                   project={active}
+                  outputs={runProjectId === active.id ? displayOutputs : undefined}
                   onClose={() => {
                     useProjectStore.getState().clearActive();
                     setTargetProjectId(null);
                   }}
-                />
+                >
+                  {batchItems.length > 0 && (
+                    <div
+                      data-testid="batch-queue"
+                      className="mt-3 rounded-xl border border-emerald-200 bg-white/80 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-slate-700">
+                          批量队列 · 完成 {batchDone}/{batchItems.length}
+                          {batchFailed > 0 && (
+                            <span className="text-rose-600"> · 失败 {batchFailed}</span>
+                          )}
+                        </p>
+                        {batchActive ? (
+                          <button
+                            type="button"
+                            onClick={() => useBatchStore.getState().finish()}
+                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                          >
+                            取消批量（当前视频完成后停止）
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => useBatchStore.getState().reset()}
+                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                          >
+                            清除队列
+                          </button>
+                        )}
+                      </div>
+                      <ul className="mt-2 space-y-1">
+                        {batchItems.map((item, index) => (
+                          <li
+                            key={`${item.path}:${index}`}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-xs"
+                          >
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {item.status === "running" ||
+                              item.status === "waiting_review" ? (
+                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-600" />
+                              ) : item.status === "done" ? (
+                                <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                              ) : item.status === "failed" ? (
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-rose-600" />
+                              ) : (
+                                <span className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-slate-300" />
+                              )}
+                              <span
+                                className="truncate font-mono text-slate-700"
+                                title={item.path}
+                              >
+                                {index + 1}. {fileName(item.path)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {item.error && (
+                                <span
+                                  className="max-w-[18rem] truncate text-rose-600"
+                                  title={item.error}
+                                >
+                                  {item.error}
+                                </span>
+                              )}
+                              {item.status === "done" && (
+                                <span className="text-emerald-700">
+                                  {item.outputs.length > 0
+                                    ? `${item.outputs.length} 个产物`
+                                    : "完成"}
+                                </span>
+                              )}
+                              {item.status === "waiting_review" && item.runId && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    navigate({ name: "review", runId: item.runId! })
+                                  }
+                                  className="rounded bg-amber-600 px-2 py-0.5 text-[11px] text-white hover:bg-amber-500"
+                                >
+                                  前往审核
+                                </button>
+                              )}
+                              {item.status === "pending" && (
+                                <span className="text-slate-400">排队中</span>
+                              )}
+                              {item.status === "running" && (
+                                <span className="text-sky-700">运行中</span>
+                              )}
+                              {item.status === "waiting_review" && (
+                                <span className="text-amber-700">等待审核</span>
+                              )}
+                              {item.status === "failed" && (
+                                <span className="text-rose-700">失败</span>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {outputError && <p className="mt-3 text-xs text-red-600">{outputError}</p>}
+                </HandoffCard>
               )}
-            </div>
-
-            <div className="space-y-5">
               <ProjectList
                 projects={projects}
                 activeId={active?.id}

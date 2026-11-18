@@ -61,6 +61,24 @@ def test_create_project_makes_workspace_and_persists(tmp_path: Path, manager) ->
     assert summaries[0].media_path == str(media.resolve())
 
 
+def test_rename_project_persists_trimmed_name(tmp_path: Path, manager) -> None:
+    project = manager.create(name="demo")
+    renamed = manager.rename(project.id, "  新名字  ")
+    assert renamed.name == "新名字"
+    assert renamed.updated_at >= project.updated_at
+    assert manager.get(project.id).name == "新名字"
+    assert manager.list()[0].name == "新名字"
+    assert Path(renamed.workspace) == Path(project.workspace)
+
+
+def test_rename_rejects_blank_name(tmp_path: Path, manager) -> None:
+    project = manager.create(name="demo")
+    with pytest.raises(JsonRpcError) as excinfo:
+        manager.rename(project.id, "   ")
+    assert excinfo.value.code == INVALID_PARAMS
+    assert manager.get(project.id).name == "demo"
+
+
 def test_fingerprint_changes_when_file_changes(tmp_path: Path) -> None:
     media = tmp_path / "a.mkv"
     media.write_bytes(b"one")

@@ -170,7 +170,7 @@ jobs:
 
       - name: Build Python sidecar
         shell: pwsh
-        run: ./scripts/build-engine.ps1 -TargetTriple x86_64-pc-windows-msvc
+        run: ./scripts/build-engine.ps1 -Fallback -TargetTriple x86_64-pc-windows-msvc
 
       - name: Install desktop dependencies
         working-directory: apps/desktop

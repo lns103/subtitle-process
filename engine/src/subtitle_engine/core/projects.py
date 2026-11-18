@@ -126,6 +126,28 @@ class ProjectManager:
         logger.info("已创建项目 %s (%s)", project.id, project.name)
         return project
 
+    def rename(self, project_id: str, name: str) -> Project:
+        """修改项目显示名；工作区目录与产物路径保持不变。"""
+        project = self.get(project_id)
+        cleaned = name.strip()
+        if not cleaned:
+            raise JsonRpcError(
+                INVALID_PARAMS, "项目名不能为空", {"project_id": project_id}
+            )
+        if len(cleaned) > 120:
+            raise JsonRpcError(
+                INVALID_PARAMS,
+                "项目名过长（最多 120 个字符）",
+                {"project_id": project_id},
+            )
+        if cleaned == project.name:
+            return project
+        project.name = cleaned
+        project.updated_at = datetime.now(UTC)
+        self._store.save_project(project)
+        logger.info("已重命名项目 %s -> %s", project_id, cleaned)
+        return project
+
     def delete(self, project_id: str) -> None:
         project = self._store.get_project(project_id)
         if project is None:

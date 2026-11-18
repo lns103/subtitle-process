@@ -23,6 +23,7 @@
 
 - 桌面应用版本号提升至 **`1.0.0-alpha3`**：`package.json`、`package-lock.json`、`tauri.conf.json`、`Cargo.toml` / `Cargo.lock` 与 `src/lib/version.ts` 的回退值保持同步；Python 引擎版本仍为 `0.1.0`。
 - 仅 GitHub CI 的 sidecar 构建改用 PyInstaller onefile（`build-engine.ps1 -Fallback`），跳过 Nuitka 编译以缩短流水线时间；Release 与本地仍使用默认 Nuitka 编译。
+- NSIS 安装路径改为 ASCII 的 `%LOCALAPPDATA%\subtitle-process`：`productName` 同步改为 `subtitle-process`，开始菜单与“应用和功能”中的名称也随之为该值；窗口标题仍为“字幕工具箱”。
 
 ### SDH 默认规则、批量项目与悬浮运行按钮
 

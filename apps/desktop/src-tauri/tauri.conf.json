@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "字幕工具箱",
+  "productName": "subtitle-process",
   "version": "1.0.0-alpha3",
   "identifier": "com.subtitleprocess.desktop",
   "build": {

@@ -30,9 +30,22 @@ function slotPaths(slots: Record<string, string[]>, input: TaskInputSpec): strin
   return slots[input.name] ?? [];
 }
 
+/** 原生拖拽事件给的是物理像素，换算成 CSS 像素后再做命中测试。 */
+function dropPoint(position?: { x: number; y: number } | null): { x: number; y: number } | null {
+  if (!position) return null;
+  const ratio = window.devicePixelRatio || 1;
+  return { x: position.x / ratio, y: position.y / ratio };
+}
+
+function slotAtPoint(point: { x: number; y: number } | null): string | null {
+  if (!point) return null;
+  const element = document.elementFromPoint(point.x, point.y) as HTMLElement | null;
+  return element?.closest<HTMLElement>("[data-input-slot]")?.dataset.inputSlot ?? null;
+}
+
 /**
  * 任务输入槽：每个 TaskSpec.inputs 对应一个槽位。
- * 原生拖拽事件只在这里注册一次，再按焦点 / 扩展名分发到具体槽位。
+ * 原生拖拽事件只在这里注册一次，按落点槽位 / 扩展名分发到具体槽位。
  */
 export function TaskInputs({
   task,
@@ -54,7 +67,6 @@ export function TaskInputs({
   const stateRef = useRef({
     task,
     slots,
-    focusedSlot,
     onSet,
     onRoute,
     overwrite,
@@ -65,19 +77,17 @@ export function TaskInputs({
     stateRef.current = {
       task,
       slots,
-      focusedSlot,
       onSet,
       onRoute,
       overwrite,
       recursive,
     };
-  }, [task, slots, focusedSlot, onSet, onRoute, overwrite, recursive]);
+  }, [task, slots, onSet, onRoute, overwrite, recursive]);
 
-  const routeDrop = useCallback((paths: string[]) => {
+  const routeDrop = useCallback((paths: string[], targetSlot: string | null) => {
     const {
       task: currentTask,
       slots: currentSlots,
-      focusedSlot: focused,
       onSet: apply,
       onRoute: route,
       overwrite: replace,
@@ -85,49 +95,23 @@ export function TaskInputs({
     } = stateRef.current;
     if (paths.length === 0 || currentTask.inputs.length === 0) return;
 
-    // 没有明确焦点槽时走通用槽规则；有焦点槽时保持精确投放。
-    if (!focused) {
+    // 只有拖到具体输入槽上才做精确投放；落到通用区则按规则自动分配。
+    const target = targetSlot
+      ? (currentTask.inputs.find((input) => input.name === targetSlot) ?? null)
+      : null;
+
+    if (!target) {
       route(paths, replace, includeChildren);
       return;
     }
 
-    const pending: Record<string, string[]> = {};
-    const valuesOf = (input: TaskInputSpec): string[] =>
-      pending[input.name] ?? currentSlots[input.name] ?? [];
-    const isPendingEmpty = (input: TaskInputSpec): boolean => valuesOf(input).length === 0;
-    const assign = (input: TaskInputSpec, path: string) => {
-      const next = acceptsMany(input) ? [...valuesOf(input), path] : [path];
-      pending[input.name] = Array.from(new Set(next));
-    };
-
-    const focusedInput = currentTask.inputs.find((input) => input.name === focused) ?? null;
-
-    if (focusedInput && isPendingEmpty(focusedInput)) {
-      // 有明确焦点且为空：整批落到该槽（不匹配的扩展名也尊重用户焦点）。
-      const matching = paths.filter((path) => matchesAccept(path, focusedInput.accept));
-      const chosen = matching.length > 0 ? matching : paths;
-      if (acceptsMany(focusedInput)) {
-        pending[focusedInput.name] = Array.from(new Set([...valuesOf(focusedInput), ...chosen]));
-      } else {
-        pending[focusedInput.name] = [chosen[chosen.length - 1] ?? paths[0]];
-      }
-    } else {
-      for (const path of paths) {
-        const target =
-          currentTask.inputs.find(
-            (input) => matchesAccept(path, input.accept) && isPendingEmpty(input),
-          ) ??
-          currentTask.inputs.find((input) => matchesAccept(path, input.accept)) ??
-          currentTask.inputs.find((input) => isPendingEmpty(input)) ??
-          focusedInput ??
-          currentTask.inputs[0];
-        if (target) assign(target, path);
-      }
-    }
-
-    for (const [name, values] of Object.entries(pending)) {
-      if (values.length > 0) apply(currentTask.id, name, values);
-    }
+    // 显式投放尊重槽位：整批追加/替换，不再回落到其它空槽。
+    const matching = paths.filter((path) => matchesAccept(path, target.accept));
+    const chosen = matching.length > 0 ? matching : paths;
+    const next = acceptsMany(target)
+      ? Array.from(new Set([...(currentSlots[target.name] ?? []), ...chosen]))
+      : [chosen[chosen.length - 1] ?? paths[0]];
+    apply(currentTask.id, target.name, next);
   }, []);
 
   useEffect(() => {
@@ -139,11 +123,15 @@ export function TaskInputs({
         const payload = event.payload;
         if (payload.type === "over") {
           setIsOver(true);
+          setDragOverSlot(slotAtPoint(dropPoint(payload.position)));
         } else if (payload.type === "drop") {
           setIsOver(false);
-          if (payload.paths.length > 0) routeDrop(payload.paths);
+          const target = slotAtPoint(dropPoint(payload.position));
+          setDragOverSlot(null);
+          if (payload.paths.length > 0) routeDrop(payload.paths, target);
         } else {
           setIsOver(false);
+          setDragOverSlot(null);
         }
       })
       .then((fn) => {

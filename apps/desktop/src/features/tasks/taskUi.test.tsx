@@ -7,12 +7,28 @@ import { TaskInputs } from "./TaskInputs";
 import { TaskPicker } from "./TaskPicker";
 
 const { dropHandlers } = vi.hoisted(() => ({
-  dropHandlers: [] as Array<(event: { payload: { type: string; paths: string[] } }) => void>,
+  dropHandlers: [] as Array<
+    (event: {
+      payload: {
+        type: string;
+        paths: string[];
+        position?: { x: number; y: number };
+      };
+    }) => void
+  >,
 }));
 
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({
-    onDragDropEvent: async (handler: (event: { payload: { type: string; paths: string[] } }) => void) => {
+    onDragDropEvent: async (
+      handler: (event: {
+        payload: {
+          type: string;
+          paths: string[];
+          position?: { x: number; y: number };
+        };
+      }) => void,
+    ) => {
       dropHandlers.push(handler);
       return () => undefined;
     },
@@ -133,6 +149,55 @@ describe("TaskInputs", () => {
         false,
       );
     });
+  });
+
+  it("按 drop 坐标把整批文件追加到译文槽", async () => {
+    const onSet = vi.fn();
+    const onRoute = vi.fn();
+    render(
+      <TaskInputs
+        task={BILINGUAL}
+        slots={{
+          original: ["C:/out/Show.clean.srt"],
+          translated: ["C:/zh/Old.srt"],
+        }}
+        autofilled={{}}
+        onSet={onSet}
+        onClear={() => undefined}
+        onRoute={onRoute}
+        onMove={() => undefined}
+        onUndoRouting={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(dropHandlers.length).toBeGreaterThan(0));
+    const translated = screen.getByTestId("input-slot-translated");
+    const original = document.elementFromPoint;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: () => translated,
+    });
+    try {
+      dropHandlers[0]({
+        payload: {
+          type: "drop",
+          paths: ["C:/zh/EP01.srt", "C:/zh/EP02.srt"],
+          position: { x: 10, y: 10 },
+        },
+      });
+    } finally {
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: original,
+      });
+    }
+
+    expect(onRoute).not.toHaveBeenCalled();
+    expect(onSet).toHaveBeenCalledWith(BILINGUAL.id, "translated", [
+      "C:/zh/Old.srt",
+      "C:/zh/EP01.srt",
+      "C:/zh/EP02.srt",
+    ]);
   });
 
   it("清空按钮调用 onClear", async () => {

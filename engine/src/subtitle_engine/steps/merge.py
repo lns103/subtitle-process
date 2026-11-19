@@ -487,7 +487,7 @@ class MergeBilingual(Step):
             ctx.emit(
                 "step.log",
                 level="info",
-                message=f"已合并 {pair.base} → {key}.ass（{len(merged.entries)} 段）",
+                message=f"已合并 {pair.base} → {key}（{len(merged.entries)} 段）",
             )
             ctx.progress(
                 (position + 1) / len(pairs), f"已合并 {position + 1}/{len(pairs)} 对字幕"

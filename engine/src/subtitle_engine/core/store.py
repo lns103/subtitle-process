@@ -313,6 +313,51 @@ class Store:
                 return None
             return Artifact.model_validate_json(row["payload"])
 
+    def delete_artifact(self, artifact_hash: str) -> bool:
+        """删除内容寻址产物记录与文件，并清理引用它的缓存项。"""
+        with self._lock:
+            conn = self._require_conn()
+            row = conn.execute(
+                "SELECT payload FROM artifacts WHERE hash = ?", (artifact_hash,)
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                artifact = Artifact.model_validate_json(row["payload"])
+            except ValueError:
+                artifact = None
+            try:
+                conn.execute("DELETE FROM artifacts WHERE hash = ?", (artifact_hash,))
+                # 缓存负载里保存的是产物哈希；同步删除避免下次命中已清理的文件。
+                conn.execute(
+                    "DELETE FROM step_cache WHERE payload LIKE ?",
+                    (f"%{artifact_hash}%",),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                raise RuntimeError(f"删除产物失败: {artifact_hash}") from exc
+            if artifact is not None:
+                self._remove_artifact_file(Path(artifact.path))
+            return True
+
+    def _remove_artifact_file(self, path: Path) -> None:
+        """删除产物文件及其空的哈希目录；越界路径一律忽略。"""
+        try:
+            target = path.resolve()
+            root = self._artifacts_dir.resolve()
+        except OSError:
+            return
+        if not target.is_relative_to(root):
+            return
+        try:
+            if target.is_file():
+                target.unlink()
+            parent = target.parent
+            if parent != root and parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            logger.warning("删除产物文件失败: %s", path, exc_info=True)
+
     def ensure_artifact(self, artifact: Artifact) -> bool:
         """文件存在且 sha256 与 ``artifact.hash`` 一致返回 ``True``。"""
         with self._lock:

@@ -33,6 +33,7 @@ export interface RouteOptions {
 
 const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".mov", ".avi", ".ts"];
 const TRANSLATED_FOLDER_RE = /译文|翻译|translat/i;
+const ORIGINAL_FOLDER_RE = /^(clean|extracted)$/i;
 const LANGUAGE_SUFFIX =
   /[._-](zh(?:[-_](?:cn|tw|hk|sg|hans|hant))?|chi|zho|chs|cht|en(?:[-_](?:us|gb))?|eng|ja|jp|jpn|ko|kor|fr|fra|fre|de|deu|ger|es|spa|ru|rus|pt|por|it|ita|th|tha|vi|vie|id|ind|ms|may|ar|ara|tr|tur|pl|pol|nl|nld|dut|sv|swe|da|dan|fi|fin|no|nor|cs|ces|cze|hu|hun|ro|ron|rum|uk|ukr|el|ell|gre|he|heb|hi|hin|bn|ben|fa|fas|per|ta|tam|te|tel|ml|mal|ur|urd)$/i;
 const CLEAN_SUFFIX = /\.(clean|orig)(?:[._-]|$)/i;
@@ -51,6 +52,12 @@ export function folderName(path: string): string {
 export function folderLooksTranslated(path: string): boolean {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.slice(-2).some((part) => TRANSLATED_FOLDER_RE.test(part));
+}
+
+/** 路径是否位于 clean / extracted 这类原文处理目录中。 */
+export function folderLooksOriginal(path: string): boolean {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.slice(-2).some((part) => ORIGINAL_FOLDER_RE.test(part));
 }
 
 /** 文件名是否带语言后缀，例如 EP01.zh-CN.srt。 */
@@ -128,47 +135,24 @@ function isDirectoryLike(path: string): boolean {
     : false;
 }
 
-interface ScoredCandidate {
-  input: TaskInputSpec;
-  score: number;
+function acceptsMany(input: TaskInputSpec): boolean {
+  return input.kind === "files" || input.multiple === true;
 }
 
-function scoreCandidate(
-  path: string,
-  input: TaskInputSpec,
-  currentPaths: string[],
-): number {
-  const role = inferInputRole(input);
-  let score = 0;
-  const directory = isDirectoryLike(path);
-  const translatedHint = folderLooksTranslated(path) || hasLanguageSuffix(path);
-  const cleanOriginal = looksCleanOriginal(path);
+type PathHint = "original" | "translated" | null;
 
-  if (directory) {
-    if (input.kind === "folder") score += 80;
-    if (role === "translated" && folderLooksTranslated(path)) score += 70;
-    if (role === "subtitles") score += 20;
-    return score;
-  }
+/** 单个文件的语义线索；无线索时返回 null，由整批 sticky 规则决定槽位。 */
+function pathHint(path: string): PathHint {
+  if (looksCleanOriginal(path)) return "original";
+  if (folderLooksOriginal(path)) return "original";
+  if (hasLanguageSuffix(path) || folderLooksTranslated(path)) return "translated";
+  return null;
+}
 
-  if (isVideoPath(path)) {
-    if (role === "video") score += 100;
-    else if (role === "any") score += 10;
-    else score -= 50;
-  } else if (isSubtitlePath(path)) {
-    if (role === "original") score += 20 + (cleanOriginal ? 70 : 0) + (translatedHint ? -35 : 0);
-    else if (role === "translated")
-      score += 20 + (translatedHint ? 70 : 0) + (cleanOriginal ? -35 : 0);
-    else if (role === "subtitles") score += 30;
-    else if (role === "any") score += 10;
-    else score -= 50;
-  } else {
-    score += 5;
-  }
-
-  // 空槽优先，已有内容的槽默认不参与（覆盖模式在调用方放开）。
-  if (currentPaths.length === 0) score += 8;
-  return score;
+interface FileEntry {
+  path: string;
+  hint: PathHint;
+  candidates: TaskInputSpec[];
 }
 
 export function routePaths(
@@ -180,116 +164,159 @@ export function routePaths(
   const overwrite = options.overwrite === true;
   const result: RoutingResult = { assigned: [], unassigned: [], ambiguous: [] };
   const working: Record<string, string[]> = {};
+  const written = new Set<string>();
+
   const slotsOf = (input: TaskInputSpec): string[] =>
     working[input.name] ?? currentSlots[input.name] ?? [];
 
+  const slotAvailable = (input: TaskInputSpec): boolean => {
+    if (overwrite) return true;
+    // 可多值槽位：仅当本次投放前为空时整批追加，避免静默覆盖已有内容。
+    if (acceptsMany(input)) return (currentSlots[input.name] ?? []).length === 0;
+    return slotsOf(input).length === 0;
+  };
+
+  const assign = (input: TaskInputSpec, path: string): void => {
+    const base = written.has(input.name)
+      ? (working[input.name] ?? [])
+      : overwrite
+        ? []
+        : slotsOf(input);
+    const next = acceptsMany(input) ? [...base, path] : [path];
+    working[input.name] = Array.from(new Set(next));
+    written.add(input.name);
+  };
+
+  const unassigned = (path: string, reason: string): void => {
+    result.unassigned.push({ path, reason });
+  };
+
   const seen = new Set<string>();
+  const entries: FileEntry[] = [];
+
+  const routeDirectory = (path: string): void => {
+    const available = task.inputs.filter(slotAvailable);
+    if (available.length === 0) {
+      unassigned(path, "目标槽位已有内容；勾选“覆盖已有”后可替换");
+      return;
+    }
+    const translatedSlot = available.find((input) => inferInputRole(input) === "translated");
+    const folderSlot = available.find((input) => input.kind === "folder");
+    const originalSlot = available.find((input) => inferInputRole(input) === "original");
+    const subtitleSlot = available.find(
+      (input) => inferInputRole(input) === "subtitles" || acceptsSubtitles(input),
+    );
+    const chosen = folderLooksTranslated(path)
+      ? (translatedSlot ?? folderSlot ?? subtitleSlot)
+      : (folderSlot ??
+        originalSlot ??
+        subtitleSlot ??
+        (available.length === 1 ? available[0] : undefined));
+    if (!chosen) {
+      unassigned(path, "文件夹无法确定归属，请展开后拖入具体字幕文件");
+      return;
+    }
+    assign(chosen, path);
+    result.ambiguous.push(path);
+  };
+
   for (const raw of paths) {
     const path = raw.trim();
     if (!path) continue;
     if (seen.has(path)) continue;
     seen.add(path);
 
-    const directory = isDirectoryLike(path);
-    const candidates = task.inputs.filter((input) => {
-      if (directory) return true;
-      return matchesAccept(path, input.accept);
-    });
+    if (isDirectoryLike(path)) {
+      routeDirectory(path);
+      continue;
+    }
 
+    const candidates = task.inputs.filter((input) => matchesAccept(path, input.accept));
     if (candidates.length === 0) {
-      result.unassigned.push({
-        path,
-        reason: directory ? "文件夹没有匹配的输入槽" : "没有接受该扩展名的输入槽",
-      });
+      unassigned(path, "没有接受该扩展名的输入槽");
       continue;
     }
+    entries.push({ path, hint: pathHint(path), candidates });
+  }
 
-    // 明确的文件名/目录线索只允许进入对应语义的槽，避免 clean 原版被塞进译文槽。
-    let preferred = candidates;
-    if (!directory) {
-      const originalSlot = candidates.find((input) => inferInputRole(input) === "original");
-      const translatedSlot = candidates.find((input) => inferInputRole(input) === "translated");
-      if (looksCleanOriginal(path) && originalSlot) {
-        preferred = [originalSlot];
-      } else if (
-        (hasLanguageSuffix(path) || folderLooksTranslated(path)) &&
-        translatedSlot
-      ) {
-        preferred = [translatedSlot];
-      }
+  // 有明确线索的文件按角色整组进槽，避免同批文件被拆到两个槽位。
+  const hinted: Record<"original" | "translated", FileEntry[]> = {
+    original: [],
+    translated: [],
+  };
+  const unknownGroups = new Map<string, FileEntry[]>();
+  for (const entry of entries) {
+    if (entry.hint) {
+      hinted[entry.hint].push(entry);
+      continue;
     }
+    const signature = entry.candidates
+      .map((input) => input.name)
+      .sort()
+      .join("|");
+    const group = unknownGroups.get(signature);
+    if (group) group.push(entry);
+    else unknownGroups.set(signature, [entry]);
+  }
 
-    const available = preferred.filter((input) => {
-      if (overwrite) return true;
-      // 可多值槽位：仅当本次投放前为空时整批追加，避免静默覆盖已有内容。
-      if (input.multiple === true || input.kind === "files") {
-        return (currentSlots[input.name] ?? []).length === 0;
+  for (const role of ["original", "translated"] as const) {
+    const group = hinted[role];
+    if (group.length === 0) continue;
+    const target = task.inputs.find(
+      (input) =>
+        inferInputRole(input) === role && group.every((entry) => entry.candidates.includes(input)),
+    );
+    if (!target) {
+      for (const entry of group) unassigned(entry.path, "没有匹配该语义的输入槽");
+      continue;
+    }
+    if (!slotAvailable(target)) {
+      for (const entry of group) {
+        unassigned(entry.path, "目标槽位已有内容；勾选“覆盖已有”后可替换");
       }
-      return slotsOf(input).length === 0;
-    });
+      continue;
+    }
+    for (const entry of group) assign(target, entry.path);
+  }
 
+  const hasOriginalHint = hinted.original.length > 0;
+  const hasTranslatedHint = hinted.translated.length > 0;
+
+  for (const group of unknownGroups.values()) {
+    const candidates = task.inputs.filter((input) =>
+      group.every((entry) => entry.candidates.includes(input)),
+    );
+    const available = candidates.filter(slotAvailable);
     if (available.length === 0) {
-      result.unassigned.push({
-        path,
-        reason: "目标槽位已有内容；勾选“覆盖已有”后可替换",
-      });
+      for (const entry of group) {
+        unassigned(entry.path, "目标槽位已有内容；勾选“覆盖已有”后可替换");
+      }
       continue;
     }
 
-    let scored: ScoredCandidate[];
-    if (directory) {
-      const translatedSlot = available.find((input) => inferInputRole(input) === "translated");
-      const folderSlot = available.find((input) => input.kind === "folder");
-      const originalSlot = available.find((input) => inferInputRole(input) === "original");
-      const subtitleSlot = available.find(
-        (input) => inferInputRole(input) === "subtitles" || acceptsSubtitles(input),
-      );
-      const chosen = folderLooksTranslated(path)
-        ? (translatedSlot ?? folderSlot ?? subtitleSlot)
-        : (folderSlot ?? originalSlot ?? subtitleSlot ?? (available.length === 1 ? available[0] : undefined));
-      if (!chosen) {
-        result.unassigned.push({
-          path,
-          reason: "文件夹无法确定归属，请展开后拖入具体字幕文件",
-        });
-        continue;
+    // 无线索文件整批只选一次目标槽（sticky），不再逐文件重新打分，
+    // 否则空槽加分会让同批字幕在原文/译文之间交替。
+    let target: TaskInputSpec | null;
+    if (hasTranslatedHint && !hasOriginalHint) {
+      target = available.find((input) => inferInputRole(input) === "original") ?? null;
+    } else if (hasOriginalHint && !hasTranslatedHint) {
+      target = available.find((input) => inferInputRole(input) === "translated") ?? null;
+    } else {
+      const empty = available.filter((input) => slotsOf(input).length === 0);
+      target = empty.length === available.length ? available[0] : (empty[0] ?? available[0]);
+    }
+
+    if (!target) {
+      for (const entry of group) {
+        unassigned(entry.path, "目标槽位已有内容；勾选“覆盖已有”后可替换");
       }
-      scored = [{ input: chosen, score: 100 }];
-    } else {
-      scored = available
-        .map((input) => ({
-          input,
-          score: scoreCandidate(path, input, slotsOf(input)),
-        }))
-        .sort(
-          (left, right) =>
-            right.score - left.score || left.input.name.localeCompare(right.input.name),
-        );
+      continue;
     }
 
-    const best = scored[0];
-    if (!best) continue;
-    if (directory) {
-      result.ambiguous.push(path);
-    } else {
-      const tied = scored.filter((item) => item.score === best.score);
-      const ambiguousTie =
-        tied.length > 1 &&
-        tied.some((item) => inferInputRole(item.input) === "original") &&
-        tied.some((item) => inferInputRole(item.input) === "translated") &&
-        !looksCleanOriginal(path) &&
-        !hasLanguageSuffix(path) &&
-        !folderLooksTranslated(path);
-      if (ambiguousTie) result.ambiguous.push(path);
+    for (const entry of group) assign(target, entry.path);
+    if (candidates.length > 1) {
+      for (const entry of group) result.ambiguous.push(entry.path);
     }
-
-    const single = best.input.multiple !== true && best.input.kind !== "files";
-    const existing = working[best.input.name];
-    const base = existing ?? (overwrite ? [] : slotsOf(best.input));
-    const next = single
-      ? [path]
-      : [...base.filter((item) => item !== path), path];
-    working[best.input.name] = next;
   }
 
   for (const input of task.inputs) {

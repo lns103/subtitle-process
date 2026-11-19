@@ -94,3 +94,28 @@ def test_missing_recipe_reports_invalid(library: RecipeLibrary) -> None:
     with pytest.raises(JsonRpcError) as excinfo:
         library.get("nope")
     assert excinfo.value.code == RECIPE_INVALID
+
+
+@pytest.mark.parametrize(
+    ("recipe_id", "output_dir"),
+    [
+        ("batch_video_to_clean_srt", "output/clean"),
+        ("batch_translated_to_bilingual", "output/bilingual"),
+        ("batch_normalize", "output/normalize"),
+        ("batch_shift_fps", "output/fps"),
+    ],
+)
+def test_batch_recipes_export_into_subfolder(
+    library: RecipeLibrary, recipe_id: str, output_dir: str
+) -> None:
+    recipe = library.get(recipe_id)
+    export = next(step for step in recipe.steps if step.uses == "sub.export")
+    assert export.options.get("output_dir") == output_dir
+
+
+def test_bilingual_function_recipe_uses_bilingual_folder(
+    library: RecipeLibrary,
+) -> None:
+    recipe = library.get("fn_merge_bilingual")
+    export = next(step for step in recipe.steps if step.uses == "sub.export")
+    assert export.options.get("output_dir") == "output/bilingual"

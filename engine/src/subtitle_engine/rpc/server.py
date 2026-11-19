@@ -230,6 +230,8 @@ class RpcServer:
                 "path": str(path),
                 "kind": str(kind),
                 "step": str(getattr(event, "step", "") or ""),
+                "key": str(getattr(event, "key", "") or ""),
+                "hash": str(getattr(event, "hash", "") or ""),
             }
         )
 
@@ -242,13 +244,13 @@ class RpcServer:
                 run = self._jobs.get(run_id)
             except JsonRpcError:
                 run = self._store.get_run(run_id)
+            items = self._run_artifacts.pop(run_id, [])
             if run is None or not run.project_id:
-                self._run_artifacts.pop(run_id, None)
                 return
             project = self._store.get_project(run.project_id)
             workspace = Path(project.workspace) if project and project.workspace else None
             outputs = []
-            for item in self._run_artifacts.pop(run_id, []):
+            for item in items:
                 path = Path(item["path"])
                 if workspace is None:
                     continue
@@ -267,8 +269,53 @@ class RpcServer:
             updated = self._projects.record_run(run, outputs)
             if updated is not None:
                 self._emit_project(updated)
+            if str(getattr(event, "status", "")) == "done":
+                recipe = self._jobs.recipe(run_id)
+                keep = (
+                    {(output.from_, output.key) for output in recipe.outputs}
+                    if recipe is not None and recipe.outputs
+                    else None
+                )
+                has_review = any(step.uses == "human.review" for step in run.steps)
+                # 没有声明配方输出时无法判断交付物，保守起见不清理；
+                # 含人工审核的配方保留中间产物，便于撤销审核。
+                if keep and not has_review:
+                    self._cleanup_store_artifacts(items, keep)
         except Exception:  # noqa: BLE001 - 项目归档失败必须记录，但不能破坏事件流
             logger.exception("更新项目状态失败: run=%s", run_id)
+
+    def _cleanup_store_artifacts(
+        self, items: list[dict[str, str]], keep: set[tuple[str, str]]
+    ) -> None:
+        """清理本次运行的内容寻址中间产物；导出文件与其它运行正在用的产物保留。"""
+        if self._store is None:
+            return
+        try:
+            root = self._store.artifacts_dir.resolve()
+        except OSError:
+            return
+        protected = {
+            str(item.get("hash") or "")
+            for other in self._run_artifacts.values()
+            for item in other
+            if item.get("hash")
+        }
+        for item in items:
+            artifact_hash = str(item.get("hash") or "")
+            if not artifact_hash or artifact_hash in protected:
+                continue
+            if (str(item.get("step") or ""), str(item.get("key") or "")) in keep:
+                continue
+            try:
+                path = Path(item["path"]).resolve()
+            except OSError:
+                continue
+            if not path.is_relative_to(root):
+                continue
+            try:
+                self._store.delete_artifact(artifact_hash)
+            except Exception:  # noqa: BLE001 - 清理失败不能影响运行结果
+                logger.warning("清理中间产物失败: %s", item["path"], exc_info=True)
 
     def _emit_project(self, project: Project) -> None:
         event = Event(

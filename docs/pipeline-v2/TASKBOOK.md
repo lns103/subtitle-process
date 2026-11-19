@@ -1036,16 +1036,18 @@ draft
 3. 找到 → 提示「继续 EP01 的合并流程」。
 4. 找不到 → 展示候选列表 + 时间轴对比，让用户选。
 5. 运行 `batch_translated_to_bilingual`。
-6. 输出 `output/<stem>.zh&en.ass`。
+6. 输出 `output/bilingual/<stem>.zh&en.ass`。
 
 ### 13.4 文件命名约定
 
 | 产物 | 命名 |
 |---|---|
 | 原始提取 | `<stem>.orig.srt` |
-| 清洗后 | `<stem>.srt` |
+| 清洗后 | `output/clean/<stem>.srt` |
 | 译文（用户提供） | `<stem>.zh.srt` |
-| 双语 | `<stem>.zh&en.ass` |
+| 双语 | `output/bilingual/<stem>.zh&en.ass` |
+| 批量规范 | `output/normalize/<stem>.srt` |
+| 批量帧率转换 | `output/fps/<stem>.srt` |
 
 允许用户在设置中改模板。
 

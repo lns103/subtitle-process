@@ -329,6 +329,13 @@ class JobManager:
     def get(self, run_id: str) -> Run:
         return self._require(run_id).run
 
+    def recipe(self, run_id: str) -> Recipe | None:
+        """返回运行使用的配方；未知 run 或已回收时返回 ``None``。"""
+        try:
+            return self._require(run_id).recipe
+        except JsonRpcError:
+            return None
+
     def resume(self, run_id: str) -> Run:
         """从 ``waiting_review`` 断点恢复 run（可跨进程重启）。"""
         job = self._jobs.get(run_id)

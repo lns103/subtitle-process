@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -344,3 +345,37 @@ async def test_serve_never_writes_non_protocol_lines(server_factory) -> None:
     for line in writer.getvalue().splitlines():
         decoded = framing.decode_message(line)
         assert decoded["jsonrpc"] == "2.0"
+
+
+def test_cleanup_store_artifacts_keeps_exported_files(tmp_path) -> None:
+    server = RpcServer(sink=lambda _message: None, data_dir=tmp_path / "data")
+    try:
+        store = server._store
+        intermediate = store.put_bytes(key="temp", kind="srt", data=b"temp")
+        output_dir = tmp_path / "ws" / "output" / "clean"
+        output_dir.mkdir(parents=True)
+        exported = output_dir / "EP01.srt"
+        exported.write_bytes(b"final")
+        items = [
+            {
+                "path": intermediate.path,
+                "kind": "srt",
+                "step": "normalize",
+                "key": "subs",
+                "hash": intermediate.hash,
+            },
+            {
+                "path": str(exported),
+                "kind": "srt",
+                "step": "export",
+                "key": "files",
+                "hash": "deadbeef",
+            },
+        ]
+
+        server._cleanup_store_artifacts(items, {("export", "files")})
+
+        assert not Path(intermediate.path).exists()
+        assert exported.is_file()
+    finally:
+        server.close()

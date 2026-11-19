@@ -87,6 +87,22 @@ def test_put_bytes_writes_content_and_hash(tmp_path: Path) -> None:
     store.close()
 
 
+def test_delete_artifact_removes_file_and_cache(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    artifact = store.put_bytes(key="merged", kind="ass", data=b"merged ass")
+    keep = store.put_bytes(key="keep", kind="srt", data=b"keep me")
+    store.put_cache_payload("cache-key", f'{{"outputs":{{"subs":"{artifact.hash}"}}}}')
+
+    assert store.delete_artifact(artifact.hash) is True
+
+    assert store.get_artifact(artifact.hash) is None
+    assert not Path(artifact.path).exists()
+    assert store.get_cache_payload("cache-key") is None
+    assert Path(keep.path).is_file()
+    assert store.delete_artifact(artifact.hash) is False
+    store.close()
+
+
 def test_put_bytes_reuses_same_hash_without_rewrite(tmp_path: Path) -> None:
     store = Store(tmp_path)
     data = b"same content"

@@ -27,7 +27,7 @@ steps:
     with:
       format: srt
       suffix: ""
-      output_dir: ""
+      output_dir: "output/fps"
       backup: true
 outputs:
   - from: export

@@ -78,13 +78,27 @@ function isExtractionRecipe(task: TaskSpec | null): boolean {
   );
 }
 
+/** 内容寻址中间产物位于 `<数据目录>/artifacts/<sha256>/...`，不展示给用户。 */
+function isStoredArtifactPath(path: string): boolean {
+  const parts = path.split(/[\\/]/);
+  return parts.some(
+    (part, index) =>
+      part.toLowerCase() === "artifacts" &&
+      /^[0-9a-f]{64}$/i.test(parts[index + 1] ?? ""),
+  );
+}
+
 function artifactPathFrom(event: Record<string, unknown>): string | null {
   const candidates = [event.artifact, event.path, event.output];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return isStoredArtifactPath(candidate) ? null : candidate;
+    }
     if (typeof candidate === "object" && candidate !== null && "path" in candidate) {
       const path = (candidate as { path?: unknown }).path;
-      if (typeof path === "string" && path.trim()) return path;
+      if (typeof path === "string" && path.trim()) {
+        return isStoredArtifactPath(path) ? null : path;
+      }
     }
   }
   return null;
@@ -154,6 +168,10 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
 
   const bilingual = isBilingualTask(task);
   const extraction = isExtractionRecipe(task);
+  // 批处理任务都需要项目工作区，产物才能落到 <项目>/output/<子目录>。
+  const needsWorkspace = Boolean(
+    task && (bilingual || task.id.startsWith("batch_") || task.recipe_id.startsWith("batch_")),
+  );
   const engineReady = engineStatus.state === "ready";
   const batchTaskId = useBatchStore((state) => state.taskId);
   const allBatchItems = useBatchStore((state) => state.items);
@@ -535,17 +553,21 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
           projectId = project.id;
           setTargetProjectId(project.id);
         }
-      } else if (bilingual) {
+      } else if (needsWorkspace) {
         projectId =
           targetProjectId ??
           useProjectStore.getState().preferredProjectId ??
           active?.id ??
           undefined;
         if (!projectId) {
-          // 没有关联项目时建一个轻量项目，保证 ASS 落在项目 output/ 下，
+          // 没有关联项目时建一个轻量项目，保证产物落在项目 output/ 下，
           // 同时让产物出现在项目列表里。
-          const sample = slots.original?.[0] ?? slots.translated?.[0] ?? "";
-          const name = sample ? subtitleBaseName(sample) || "双语合并" : "双语合并";
+          const sample =
+            task.inputs
+              .flatMap((input) => slots[input.name] ?? [])
+              .find((path) => path.trim() !== "") ?? "";
+          const fallback = bilingual ? "双语合并" : "批处理";
+          const name = sample ? subtitleBaseName(sample) || fallback : fallback;
           const existing = useProjectStore
             .getState()
             .projects.find((project) => project.name === name);
@@ -589,6 +611,7 @@ export function TaskPage({ engineStatus, initialTaskId = null }: TaskPageProps) 
     bilingual,
     extraction,
     missingInputs,
+    needsWorkspace,
     options,
     recipe,
     reset,

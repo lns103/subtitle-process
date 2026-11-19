@@ -169,4 +169,67 @@ describe("inputRouting", () => {
     expect(hasLanguageSuffix("EP01.en.srt")).toBe(true);
     expect(hasLanguageSuffix("EP01.srt")).toBe(false);
   });
+
+  it("多条普通 SRT 整批进入同一个槽位，不再原文/译文交替", () => {
+    const result = routePaths(BILINGUAL, {}, [
+      "C:/show/EP01.srt",
+      "C:/show/EP02.srt",
+      "C:/show/EP03.srt",
+    ]);
+    expect(result.assigned).toEqual([
+      {
+        input: "original",
+        paths: ["C:/show/EP01.srt", "C:/show/EP02.srt", "C:/show/EP03.srt"],
+      },
+    ]);
+    expect(result.ambiguous).toHaveLength(3);
+  });
+
+  it("原版槽已自动填充时，普通译文整批进入译文槽", () => {
+    const current = {
+      original: ["C:/out/EP01.clean.srt", "C:/out/EP02.clean.srt"],
+    };
+    const result = routePaths(BILINGUAL, current, [
+      "D:/zh/EP01.srt",
+      "D:/zh/EP02.srt",
+    ]);
+    expect(result.assigned).toEqual([
+      {
+        input: "translated",
+        paths: ["D:/zh/EP01.srt", "D:/zh/EP02.srt"],
+      },
+    ]);
+  });
+
+  it("覆盖模式下普通字幕也整批进同一个槽", () => {
+    const current = { original: ["C:/old/EP00.srt"] };
+    const result = routePaths(
+      BILINGUAL,
+      current,
+      ["C:/show/EP01.srt", "C:/show/EP02.srt", "C:/show/EP03.srt"],
+      { overwrite: true },
+    );
+    expect(result.assigned).toEqual([
+      {
+        input: "translated",
+        paths: ["C:/show/EP01.srt", "C:/show/EP02.srt", "C:/show/EP03.srt"],
+      },
+    ]);
+  });
+
+  it("混合批次：clean 原版进原文，普通文件整批进译文", () => {
+    const result = routePaths(BILINGUAL, {}, [
+      "C:/show/EP01.clean.srt",
+      "C:/show/EP02.clean.srt",
+      "C:/zh/EP01.srt",
+      "C:/zh/EP02.srt",
+    ]);
+    expect(result.assigned).toEqual([
+      {
+        input: "original",
+        paths: ["C:/show/EP01.clean.srt", "C:/show/EP02.clean.srt"],
+      },
+      { input: "translated", paths: ["C:/zh/EP01.srt", "C:/zh/EP02.srt"] },
+    ]);
+  });
 });

@@ -30,7 +30,7 @@ steps:
     with:
       format: srt
       suffix: ""
-      output_dir: ""
+      output_dir: "output/normalize"
       backup: true
 outputs:
   - from: export

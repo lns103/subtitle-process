@@ -1,6 +1,8 @@
 [package]
 name = "subtitle-desktop"
-version = "1.0.0-alpha3"
+# 应用版本号唯一来源：apps/desktop/package.json。
+# tauri.conf.json 的 version 已指向该文件，Cargo 版本不参与应用版本，保持占位避免重复维护。
+version = "0.0.0"
 description = "Subtitle Process desktop shell"
 authors = ["Subtitle Process"]
 edition = "2024"

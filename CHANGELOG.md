@@ -36,6 +36,7 @@
 
 ### 版本
 
+- **版本号收敛为单一来源**：引擎只在 `engine/src/subtitle_engine/version.py` 声明版本，`pyproject.toml` 改为 `dynamic` 由 hatchling 读取；桌面端以 `apps/desktop/package.json` 为准，`tauri.conf.json` 的 `version` 改为引用 `../package.json`，打包脚本与 Release 工作流直接读取该文件；`Cargo.toml` 的 crate 版本固定为 `0.0.0`（不参与应用版本），前端回退值改为 `0.0.0-dev`。应用版本仍为 `1.0.0-alpha3`，引擎版本仍为 `0.1.0`。
 - 桌面应用版本号提升至 **`1.0.0-alpha3`**：`package.json`、`package-lock.json`、`tauri.conf.json`、`Cargo.toml` / `Cargo.lock` 与 `src/lib/version.ts` 的回退值保持同步；Python 引擎版本仍为 `0.1.0`。
 - 仅 GitHub CI 的 sidecar 构建改用 PyInstaller onefile（`build-engine.ps1 -Fallback`），跳过 Nuitka 编译以缩短流水线时间；Release 与本地仍使用默认 Nuitka 编译。
 - NSIS 安装路径改为 ASCII 的 `%LOCALAPPDATA%\subtitle-process`：`productName` 同步改为 `subtitle-process`，开始菜单与“应用和功能”中的名称也随之为该值；窗口标题仍为“字幕工具箱”。

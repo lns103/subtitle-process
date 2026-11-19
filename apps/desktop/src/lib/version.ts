@@ -7,7 +7,7 @@ import { getVersion } from "@tauri-apps/api/app";
 function bundledVersion(): string {
   return typeof __APP_VERSION__ === "string" && __APP_VERSION__
     ? __APP_VERSION__
-    : "1.0.0-alpha3";
+    : "0.0.0-dev";
 }
 
 /** 优先使用 Tauri 应用版本；浏览器 / 测试环境使用构建时注入的版本。 */

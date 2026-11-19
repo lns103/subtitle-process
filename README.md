@@ -136,6 +136,41 @@ npm run tauri dev                         # 开发模式（自动用 uv 拉起�
    .\scripts\e2e.ps1
    ```
 
+### 版本号来源
+
+引擎与桌面端各保留一个版本号，均只有一处权威来源，其余位置自动派生：
+
+| 位置 | 来源 | 说明 |
+|---|---|---|
+| Python 引擎 | `engine/src/subtitle_engine/version.py::__version__` | `engine/pyproject.toml` 通过 `[tool.hatch.version]` 读取，不再重复声明 |
+| 桌面应用 | `apps/desktop/package.json` 的 `version` | `tauri.conf.json` 的 `version` 指向 `../package.json`；前端构建时由 Vite 注入；打包脚本与 Release 工作流直接读该文件 |
+
+`apps/desktop/src-tauri/Cargo.toml` 的 crate 版本固定为 `0.0.0`，不参与应用版本
+（Tauri 以配置文件的 `version` 为准），因此无需随发布号手动同步。
+
+#### 升版与锁文件
+
+1. 桌面端：只改 `apps/desktop/package.json` 的 `version`，然后同步锁文件（禁止手改）：
+
+   ```powershell
+   cd apps/desktop
+   npm install --package-lock-only      # 刷新 package-lock.json
+   cd src-tauri
+   cargo check                          # 或 cargo metadata，刷新 Cargo.lock 中的本地 crate 版本
+   ```
+
+   `Cargo.toml` 的 crate 版本固定为 `0.0.0`，通常无需改动；只有调整依赖时才由 `cargo` 更新 `Cargo.lock`。
+
+2. 引擎：只改 `engine/src/subtitle_engine/version.py::__version__`，然后刷新 `uv.lock`：
+
+   ```powershell
+   cd engine
+   uv lock
+   ```
+
+3. 提交后按发布流程打标签（如 `v1.0.0-alpha5`）并推送，`.github/workflows/release.yml` 会用
+   `package.json` 的版本生成安装包。
+
 ## 数据目录
 
 Windows 为 `%APPDATA%/SubtitleProcess`，包含：

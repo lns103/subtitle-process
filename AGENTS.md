@@ -93,7 +93,8 @@ pwsh scripts/build-engine.ps1 -Fallback  # 本地快速验证 sidecar（发布�
   捕获后必须记录日志并给出可诊断信息。
 - **编码与换行**: 字幕写出统一显式 `encoding="utf-8"`，换行统一 `\n`（LF）。
 - **不要手改锁文件**: `engine/uv.lock`、`apps/desktop/package-lock.json`、
-  `apps/desktop/src-tauri/Cargo.lock` 只通过 `uv` / `npm` / `cargo` 更新。
+  `apps/desktop/src-tauri/Cargo.lock` 只通过 `uv` / `npm` / `cargo` 更新
+  （升版步骤见 `README.md`「升版与锁文件」）。
 
 ### Python 引擎
 
@@ -151,9 +152,10 @@ pwsh scripts/build-engine.ps1 -Fallback  # 本地快速验证 sidecar（发布�
 
 - **不要修改 golden 基准**: `engine/tests/legacy_reference/` 是冻结副本，生产代码不得导入；
   算法变化请改 `domain/` 并同步测试，不要改基准“让测试通过”。
-- **不要自行升版本**: 除非明确要求，不修改 `engine/pyproject.toml`、
-  `engine/src/subtitle_engine/version.py`、`apps/desktop/src-tauri/tauri.conf.json`、
-  `apps/desktop/package.json`（含 lock 中的版本）。
+- **不要自行升版本**: 版本号唯一来源是 `engine/src/subtitle_engine/version.py`（引擎）
+  与 `apps/desktop/package.json`（桌面端），除非明确要求，不要修改这两个文件；
+  `engine/pyproject.toml`、`apps/desktop/src-tauri/tauri.conf.json` 与各 lock 文件中的版本
+  由它们派生，不要单独修改。
 - **不要提交本地产物**: `binaries/`、`target/`、`dist/`、`build/`、`.venv/`、数据目录、
   `LOCAL_ENV.md` 均已被忽略，不要强制加入 Git。
 - **不要绕过工具链**: 不手动复制 sidecar 到安装目录冒充打包结果；发布走 `scripts/`。

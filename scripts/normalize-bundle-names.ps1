@@ -21,11 +21,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$TauriConfPath = Join-Path $RepoRoot "apps\desktop\src-tauri\tauri.conf.json"
+# 应用版本号唯一来源是 apps/desktop/package.json（tauri.conf.json 的 version 指向它）。
+$PackageJsonPath = Join-Path $RepoRoot "apps\desktop\package.json"
 $NsisDir = Join-Path $RepoRoot "apps\desktop\src-tauri\target\release\bundle\nsis"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = [string](Get-Content -LiteralPath $TauriConfPath -Raw | ConvertFrom-Json).version
+    $Version = [string](Get-Content -LiteralPath $PackageJsonPath -Raw | ConvertFrom-Json).version
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
     throw "Unable to determine app version."

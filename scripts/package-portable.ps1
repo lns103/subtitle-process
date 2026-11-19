@@ -17,7 +17,7 @@
     `x86_64-pc-windows-msvc`.
 
 .PARAMETER Version
-    Overrides the version from `tauri.conf.json`.
+    Overrides the version from `apps/desktop/package.json`.
 
 .EXAMPLE
     pwsh scripts/package-portable.ps1
@@ -33,6 +33,8 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $TauriConfPath = Join-Path $RepoRoot "apps\desktop\src-tauri\tauri.conf.json"
+# 应用版本号唯一来源是 apps/desktop/package.json（tauri.conf.json 的 version 指向它）。
+$PackageJsonPath = Join-Path $RepoRoot "apps\desktop\package.json"
 $ReleaseDir = Join-Path $RepoRoot "apps\desktop\src-tauri\target\release"
 
 if (-not (Test-Path -LiteralPath $TauriConfPath)) {
@@ -41,7 +43,7 @@ if (-not (Test-Path -LiteralPath $TauriConfPath)) {
 
 $config = Get-Content -LiteralPath $TauriConfPath -Raw | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = [string]$config.version
+    $Version = [string](Get-Content -LiteralPath $PackageJsonPath -Raw | ConvertFrom-Json).version
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
     throw "Unable to determine app version."

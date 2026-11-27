@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,19 @@ _KIND_BY_EXT = {
 
 _PROGRESS_TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
 _PERCENT_RE = re.compile(r"(\d+)%")
+
+
+def _backup_target(ctx: StepContext, target: Path) -> None:
+    """写入来源文件夹前备份同名文件，避免直接覆盖用户既有字幕。"""
+    if not target.is_file():
+        return
+    backup = target.with_name(target.name + ".bak")
+    shutil.copy2(target, backup)
+    ctx.emit(
+        "step.log",
+        level="info",
+        message=f"已备份原文件 {backup.name}",
+    )
 
 
 class ProbeOptions(BaseModel):
@@ -122,6 +136,10 @@ class ExtractOptions(BaseModel):
     prefer_embedded: bool = Field(
         default=True, description="优先提取内嵌轨道（M2 仅支持内嵌）"
     )
+    to_source: bool = Field(
+        default=False,
+        description="直接写入视频所在文件夹；关闭时写入工作区",
+    )
 
 
 @register_step
@@ -167,7 +185,10 @@ class ExtractSubtitles(Step):
         if not options.prefer_embedded:
             ctx.emit("step.log", level="warning", message="M2 仅支持内嵌字幕轨道")
 
-        output_dir = ctx.workspace / "extract" / ctx.run_id
+        if options.to_source:
+            output_dir = Path(normalize_path(source)).parent
+        else:
+            output_dir = ctx.workspace / "extract" / ctx.run_id
         output_dir.mkdir(parents=True, exist_ok=True)
         base = Path(normalize_path(source)).stem
         single_track = len(selected) == 1
@@ -190,6 +211,7 @@ class ExtractSubtitles(Step):
                         base,
                         single_track,
                         options.convert_vtt_to_srt,
+                        backup=options.to_source,
                     )
                 )
             if ffmpeg_tracks:
@@ -203,6 +225,7 @@ class ExtractSubtitles(Step):
                         single_track,
                         options.convert_vtt_to_srt,
                         duration,
+                        backup=options.to_source,
                     )
                 )
         except ffmpeg.DependencyMissingError as exc:
@@ -257,6 +280,8 @@ class ExtractSubtitles(Step):
         single_track: bool,
         convert_vtt_to_srt: bool,
         duration: float,
+        *,
+        backup: bool,
     ) -> list[tuple[dict, Path]]:
         executable = ffmpeg.find_tool(ffmpeg.FFMPEG)
         command = [executable, "-hide_banner", "-i", source, "-y"]
@@ -268,6 +293,10 @@ class ExtractSubtitles(Step):
             target = output_dir / filename
             command.extend(["-map", f"0:{sub.get('index')}", str(target)])
             outputs.append((sub, target))
+
+        if backup:
+            for _, target in outputs:
+                _backup_target(ctx, target)
 
         ctx.progress(0.15, f"FFmpeg 提取 {len(outputs)} 条轨道")
         state = {"percent": 0.15}
@@ -297,6 +326,8 @@ class ExtractSubtitles(Step):
         base: str,
         single_track: bool,
         convert_vtt_to_srt: bool,
+        *,
+        backup: bool,
     ) -> list[tuple[dict, Path]]:
         executable = ffmpeg.find_tool(ffmpeg.MKVEXTRACT)
         args: list[str] = []
@@ -327,6 +358,13 @@ class ExtractSubtitles(Step):
                 pending_convert.append((sub, target, output_dir / srt_name))
             else:
                 outputs.append((sub, target))
+
+        if backup:
+            for _, target in outputs:
+                _backup_target(ctx, target)
+            for _, temporary, srt_path in pending_convert:
+                _backup_target(ctx, temporary)
+                _backup_target(ctx, srt_path)
 
         ctx.progress(0.15, f"mkvextract 提取 {len(tracks)} 条轨道")
         command = [executable, "tracks", source, *args]

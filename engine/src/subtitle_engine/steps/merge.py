@@ -471,6 +471,10 @@ class MergeBilingual(Step):
                 suffix=".ass",
                 meta={
                     "source_hash": pair.translated.hash,
+                    "source_path": (
+                        pair.translated.meta.get("source_path")
+                        or pair.original.meta.get("source_path", "")
+                    ),
                     "source_stem": pair.base,
                     "output_stem": key,
                     "original_hash": pair.original.hash,

@@ -113,9 +113,10 @@ def test_batch_recipes_export_into_subfolder(
     assert export.options.get("output_dir") == output_dir
 
 
-def test_bilingual_function_recipe_uses_bilingual_folder(
+def test_bilingual_function_recipe_uses_source_folder(
     library: RecipeLibrary,
 ) -> None:
     recipe = library.get("fn_merge_bilingual")
     export = next(step for step in recipe.steps if step.uses == "sub.export")
-    assert export.options.get("output_dir") == "output/bilingual"
+    assert export.options.get("output_dir") == ""
+    assert export.options.get("to_source") is True

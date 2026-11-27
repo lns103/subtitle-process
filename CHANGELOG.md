@@ -9,7 +9,7 @@
 #### 修复
 - **多条字幕自动分配交替**：通用投放改为整批先分类再落槽；带 `.clean` / 语言后缀 / 译文目录线索的文件整组进对应槽，无线索文件整批只选一次目标槽，不再出现原文/译文轮流分配。
 - **拖到译文槽只有一条生效**：原生拖拽改用 Tauri v2 `drop` 事件的坐标命中 `[data-input-slot]`，整批文件追加到落点槽位（即使该槽已有内容），不再回落到原文槽；拖动悬停时同步高亮目标槽。
-- **双语产物分散**：`batch_translated_to_bilingual` 与 `fn_merge_bilingual` 的导出目录固定为工作区 `output/bilingual/`，多个 ASS 集中在同一文件夹。
+- **双语产物分散**：`batch_translated_to_bilingual` 的导出目录固定为工作区 `output/bilingual/`，多个 ASS 集中在同一文件夹；单项功能 `fn_merge_bilingual` 改为写回译文字幕所在文件夹。
 - **打开文件夹落到 artifacts**：产物列表与“打开所在文件夹”只使用真正写盘的文件，内容寻址中间产物（`artifacts/<sha256>/`）不再出现在界面中。
 - **中间产物用完即清**：项目运行成功后删除本次运行的内容寻址中间产物（导出文件、配方声明产物与含人工审核的中间产物保留，仍被其它运行引用的产物跳过），避免 `artifacts/` 无限增长。
 - **批量任务分目录输出**：`batch_video_to_clean_srt` → `output/clean/`、`batch_translated_to_bilingual` → `output/bilingual/`、`batch_normalize` → `output/normalize/`、`batch_shift_fps` → `output/fps/`；批量规范/帧率任务也会自动创建或复用项目工作区。
@@ -18,6 +18,16 @@
 #### 测试
 - 前端新增多条普通 SRT 整批同槽、原文已填充时整批进译文、覆盖模式不交替、混合批次以及按 drop 坐标追加译文槽用例。
 - 引擎新增 4 个批量配方输出子目录断言，以及中间产物删除与缓存同步清理用例。
+
+### 单项功能输出到来源文件夹
+
+#### 变更
+- **单项功能就地输出**：`sub.export` 新增 `to_source`；内置单项功能配方开启后，输出写在来源字幕所在文件夹（不再落到数据目录 `workspace/output/`），批量配方仍显式写入项目 `output/<子目录>/`。
+- **提取字幕就地输出**：`media.extract_subtitles` 新增 `to_source`；`fn_extract_subtitles` 默认把提取结果写在视频同目录，覆盖同名文件前保留 `.bak`。
+- **双语合并就地输出**：`fn_merge_bilingual` 改为输出到译文字幕所在文件夹。
+
+#### 测试
+- 引擎新增单项导出/双语合并来源目录断言、提取到来源文件夹的 `.bak` 备份用例。
 
 ### 项目卡片整合运行队列、产物与改名
 

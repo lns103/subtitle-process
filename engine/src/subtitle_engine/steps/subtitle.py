@@ -20,6 +20,7 @@ from ..core.models import Artifact, PortSpec
 from ..core.registry import register_step
 from ..core.step import Step, StepContext
 from ..domain.clean import clean_srt_text, format_zh_srt_text
+from ..domain.paths import normalize_path
 from ..domain.srt import parse_srt
 from ..domain.validate import validate_doc
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
@@ -177,7 +178,11 @@ class ExportOptions(BaseModel):
     format: Literal["srt", "ass", "vtt"] = Field(default="srt", description="输出格式")
     suffix: str = Field(default="", description="追加到文件名后的后缀；默认不追加")
     output_dir: str = Field(
-        default="", description="输出目录；留空写入工作区 output/"
+        default="",
+        description="输出目录；留空时写入工作区 output/（开启 to_source 则写入来源文件夹）",
+    )
+    to_source: bool = Field(
+        default=False, description="输出目录留空时写入来源文件所在文件夹"
     )
     filename: str = Field(
         default="", description="指定文件名（仅单条字幕可用），留空自动生成"
@@ -217,10 +222,10 @@ class ExportSubtitles(Step):
                 {"step": self.id, "count": len(sources)},
             )
 
-        output_dir = self._resolve_output_dir(ctx, options.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        explicit_output_dir = self._resolve_output_dir(ctx, options.output_dir)
+        use_source_dir = not options.output_dir.strip() and options.to_source
         files: list[Artifact] = []
-        used_names: set[str] = set()
+        used_names: dict[Path, set[str]] = {}
 
         for position, artifact in enumerate(sources):
             if options.format != artifact.kind:
@@ -239,11 +244,18 @@ class ExportSubtitles(Step):
                 stem = artifact_stem(artifact) + options.suffix
                 name = f"{stem}.{options.format}"
 
-            if name in used_names:
+            target_dir = (
+                self._source_output_dir(ctx, artifact)
+                if use_source_dir
+                else explicit_output_dir
+            )
+            target_dir.mkdir(parents=True, exist_ok=True)
+            names = used_names.setdefault(target_dir, set())
+            if name in names:
                 stem, dot, extension = name.rpartition(".")
-                name = f"{stem}.{len(used_names)}{dot}{extension}"
-            used_names.add(name)
-            target = output_dir / name
+                name = f"{stem}.{len(names)}{dot}{extension}"
+            names.add(name)
+            target = target_dir / name
 
             text = read_text(artifact)
             data = (text.rstrip("\n") + "\n").encode("utf-8")
@@ -286,11 +298,23 @@ class ExportSubtitles(Step):
     @staticmethod
     def _resolve_output_dir(ctx: StepContext, value: str) -> Path:
         if not value.strip():
-            return ctx.workspace / "output"
+            return (ctx.workspace / "output").resolve()
         path = Path(value).expanduser()
         if not path.is_absolute():
             path = ctx.workspace / path
         return path.resolve()
+
+    @staticmethod
+    def _source_output_dir(ctx: StepContext, artifact: Artifact) -> Path:
+        raw = str((artifact.meta or {}).get("source_path") or "").strip()
+        if raw:
+            try:
+                source = Path(normalize_path(raw))
+                if source.is_file():
+                    return source.parent
+            except OSError:
+                logger.exception("无法解析来源路径，回退到工作区: %s", raw)
+        return (ctx.workspace / "output").resolve()
 
 
 __all__ = [

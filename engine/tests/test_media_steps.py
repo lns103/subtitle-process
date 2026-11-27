@@ -343,6 +343,59 @@ async def test_extract_uses_mkvextract_when_flagged(
     assert "[BEN]" in text
 
 
+async def test_extract_to_source_writes_next_to_video(
+    fixtures: dict[str, Path], tmp_path: Path
+) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    video = source_dir / "episode.mkv"
+    shutil.copy2(fixtures["mkv"], video)
+    existing = source_dir / "episode.srt"
+    existing.write_text("OLD\n", encoding="utf-8")
+    info = {
+        "source_path": str(video),
+        "duration": 8.0,
+        "default_audio_lang": "eng",
+        "subtitles": [
+            {
+                "index": 2,
+                "codec_name": "SubRip/SRT",
+                "language": "eng",
+                "title": "",
+                "forced": False,
+                "hearing_impaired": False,
+                "use_mkvextract": True,
+            }
+        ],
+    }
+    runtime = Runtime(tmp_path)
+    try:
+        run = runtime.jobs.start(
+            Recipe(
+                id="extract_to_source",
+                name="extract_to_source",
+                steps=[
+                    StepNode(id="seed", uses="test.seed_probe", options={"info": info}),
+                    StepNode(
+                        id="extract",
+                        uses="media.extract_subtitles",
+                        needs=["seed"],
+                        options={"to_source": True},
+                    ),
+                ],
+            )
+        )
+        finished = await runtime.jobs.wait(run.id)
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    extracted = source_dir / "episode.srt"
+    assert extracted.is_file()
+    assert extracted.read_text(encoding="utf-8-sig").startswith("1\n00:00:00,200")
+    assert (source_dir / "episode.srt.bak").read_text(encoding="utf-8") == "OLD\n"
+
+
 async def test_missing_ffprobe_reports_1006(tmp_path: Path, monkeypatch) -> None:
     dummy = tmp_path / "dummy.mkv"
     dummy.write_bytes(b"not a real video")

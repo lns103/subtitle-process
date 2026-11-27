@@ -156,6 +156,38 @@ async def test_normalize_validate_export(tmp_path: Path) -> None:
     assert report["issues"] == []
 
 
+async def test_export_blank_output_dir_writes_next_to_source(tmp_path: Path) -> None:
+    """单项功能留空输出目录时，结果落在来源文件所在文件夹并备份原文件。"""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    source = source_dir / "EP01.srt"
+    source.write_text(SAMPLE, encoding="utf-8")
+
+    recipe = Recipe(
+        id="fn_normalize",
+        name="normalize",
+        steps=[
+            StepNode(id="normalize", uses="sub.normalize"),
+            StepNode(
+                id="export",
+                uses="sub.export",
+                needs=["normalize"],
+                options={"format": "srt", "suffix": "", "output_dir": "", "to_source": True},
+            ),
+        ],
+    )
+
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe, inputs=[str(source)]).id)
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    assert source.read_text(encoding="utf-8") == EXPECTED
+    assert (source_dir / "EP01.srt.bak").read_text(encoding="utf-8") == SAMPLE
+
+
 async def test_export_keeps_backup_and_is_not_cached(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     output_dir.mkdir()

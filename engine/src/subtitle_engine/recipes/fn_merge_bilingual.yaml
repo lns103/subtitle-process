@@ -34,7 +34,8 @@ steps:
     with:
       format: ass
       suffix: ""
-      output_dir: "output/bilingual"
+      output_dir: ""
+      to_source: true
       backup: true
 outputs:
   - from: export

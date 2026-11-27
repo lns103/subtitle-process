@@ -30,6 +30,7 @@ steps:
       format: srt
       suffix: ""
       output_dir: ""
+      to_source: true
       backup: true
 outputs:
   - from: export

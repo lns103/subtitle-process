@@ -1,13 +1,13 @@
 id: fn_shift_time
 name: 时间轴平移
 version: 1
-description: 整体平移字幕时间轴，负值为提前。
+description: 整体平移字幕时间轴；支持 SRT / ASS / SSA / VTT，ASS 保持原格式。
 builtin: true
 inputs:
   - name: subs
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".ass", ".ssa", ".vtt"]
     required: true
     multiple: true
     bind:
@@ -23,7 +23,7 @@ steps:
     uses: sub.export
     needs: [shift]
     with:
-      format: srt
+      format: auto
       suffix: ""
       output_dir: ""
       to_source: true

@@ -157,6 +157,13 @@ describe("端口兼容与连线校验", () => {
     expect(portCompatible("video", "subtitle")).toBe(false);
   });
 
+  it("subtitle_doc 与 SRT/ASS/VTT 互连", () => {
+    expect(portCompatible("srt", "subtitle_doc")).toBe(true);
+    expect(portCompatible("ass", "subtitle_doc")).toBe(true);
+    expect(portCompatible("subtitle_doc", "vtt")).toBe(true);
+    expect(portCompatible("subtitle_doc", "video")).toBe(false);
+  });
+
   it("connectionIssue 放行兼容连线并拒绝不兼容/未知端口", () => {
     const specsById: Record<string, StepSpec> = {
       probe: PROBE,

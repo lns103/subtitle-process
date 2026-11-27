@@ -106,11 +106,16 @@ def parse_srt(content: str) -> SubtitleDoc:
 
 
 def serialize_srt(cues: list[Cue]) -> str:
-    """按 SRT 规范序列化，使用 LF 换行且末尾保留一个换行。"""
+    """按 SRT 规范序列化，使用 LF 换行且末尾保留一个换行。
+
+    文本为空的 cue 不会写出，并按输出顺序重新编号，避免 SDH/Agent 删除后
+    留下只有序号和时间轴的空块。
+    """
     parts: list[str] = []
-    for order, cue in enumerate(cues, start=1):
-        number = cue.index if cue.index > 0 else order
-        parts.append(str(number))
+    for order, cue in enumerate(
+        (item for item in cues if item.text.strip()), start=1
+    ):
+        parts.append(str(order))
         parts.append(f"{format_timestamp(cue.start)} --> {format_timestamp(cue.end)}")
         parts.append(cue.text)
         parts.append("")

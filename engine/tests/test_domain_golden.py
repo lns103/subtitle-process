@@ -76,6 +76,7 @@ def test_clean_srt_text_matches_legacy(name: str) -> None:
     expected, expected_stats = srt_process.process_subtitles_content(content)
     actual, actual_stats = clean_srt_text(content)
     assert actual == expected
+    expected_stats.setdefault("junk", 0)
     assert actual_stats.to_dict() == expected_stats
 
 
@@ -97,6 +98,7 @@ def test_clean_srt_text_switches_match_legacy(name: str) -> None:
         merge_identical=True,
     )
     assert actual == expected
+    expected_stats.setdefault("junk", 0)
     assert actual_stats.to_dict() == expected_stats
 
 

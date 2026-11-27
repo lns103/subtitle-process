@@ -55,6 +55,15 @@ async def test_tasks_list_includes_workflows_and_functions(
     assert function["order"] == 31
     assert function["inputs"][0]["bind"] == [{"step": "normalize", "port": "subs"}]
 
+    pure = by_id["batch_subtitle_to_clean_srt"]
+    assert pure["kind"] == "workflow"
+    assert pure["group"] == "主流程"
+    assert ".vtt" in pure["inputs"][0]["accept"]
+
+    agent = by_id["batch_subtitle_sdh_agent"]
+    assert agent["kind"] == "workflow"
+    assert agent["group"] == "AI 处理"
+
     assert {task["kind"] for task in tasks} == {"workflow", "function"}
     assert len([task for task in tasks if task["kind"] == "function"]) == 10
 

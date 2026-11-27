@@ -23,8 +23,16 @@ from ..domain.clean import clean_srt_text, format_zh_srt_text
 from ..domain.paths import normalize_path
 from ..domain.srt import parse_srt
 from ..domain.validate import validate_doc
+from ..domain.vtt import vtt_to_srt
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
-from ._support import artifact_meta, artifact_stem, ingest_run_inputs, read_text
+from ._support import (
+    artifact_format,
+    artifact_meta,
+    artifact_stem,
+    ingest_run_inputs,
+    read_subtitle_text,
+    read_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +44,9 @@ class NormalizeOptions(BaseModel):
     clean_person: bool = Field(default=True, description="移除 “人名:” 形式的说话人提示")
     clean_uppercase: bool = Field(default=False, description="移除全大写行（SDH 音效）")
     zh_punctuation: bool = Field(default=False, description="中文标点规范化")
+    drop_hash_only: bool = Field(
+        default=True, description="移除整行只有 # 的占位行"
+    )
 
 
 @register_step
@@ -43,7 +54,9 @@ class NormalizeSubtitles(Step):
     id = "sub.normalize"
     title = "规范字幕"
     description = "按开关清理括号/标签/人名提示，合并短句与相同行，可选中文标点规范化。"
-    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", required=False, multiple=True)}
+    inputs: dict[str, PortSpec] = {
+        "subs": PortSpec(kind="subtitle_doc", required=False, multiple=True)
+    }
     outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
     Options = NormalizeOptions
     requires_agent = False
@@ -51,11 +64,19 @@ class NormalizeSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: NormalizeOptions = ctx.options  # type: ignore[assignment]
-        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(ctx)
+        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(
+            ctx, suffixes=(".srt", ".vtt")
+        )
         results: list[Artifact] = []
 
         for position, artifact in enumerate(sources):
-            text = read_text(artifact)
+            text, source_format = read_subtitle_text(artifact, step=self.id)
+            if source_format == "vtt":
+                ctx.emit(
+                    "step.log",
+                    level="info",
+                    message=f"{artifact_stem(artifact)}: WebVTT 已自动转为 SRT",
+                )
             cleaned, stats = clean_srt_text(
                 text,
                 merge_short=options.merge_short,
@@ -63,13 +84,20 @@ class NormalizeSubtitles(Step):
                 clean_person=options.clean_person,
                 merge_identical=options.merge_identical,
                 strip_html=options.strip_html,
+                drop_hash_only=options.drop_hash_only,
             )
             if options.zh_punctuation:
                 cleaned = format_zh_srt_text(cleaned)
 
             normalized = cleaned.rstrip("\n") + "\n"
             meta = artifact_meta(artifact)
-            meta.update({"stats": stats.to_dict(), "zh_punctuation": options.zh_punctuation})
+            meta.update(
+                {
+                    "stats": stats.to_dict(),
+                    "zh_punctuation": options.zh_punctuation,
+                    "source_format": source_format,
+                }
+            )
             result = ctx.services.store.put_bytes(
                 key=artifact_stem(artifact),
                 kind="srt",
@@ -106,7 +134,7 @@ class ValidateSubtitles(Step):
     title = "校验字幕"
     description = "检查空文本、时间轴倒挂/重叠、时长、CPS 与行宽，输出结构化报告。"
     inputs: dict[str, PortSpec] = {
-        "subs": PortSpec(kind="srt", required=False, multiple=True)
+        "subs": PortSpec(kind="subtitle_doc", required=False, multiple=True)
     }
     outputs: dict[str, PortSpec] = {
         "subs": PortSpec(kind="srt", multiple=True),
@@ -118,11 +146,14 @@ class ValidateSubtitles(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: ValidateOptions = ctx.options  # type: ignore[assignment]
-        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(ctx)
+        sources: list[Artifact] = inputs.get("subs") or ingest_run_inputs(
+            ctx, suffixes=(".srt", ".vtt")
+        )
         reports: list[Artifact] = []
 
         for position, artifact in enumerate(sources):
-            doc = parse_srt(read_text(artifact))
+            text, _source_format = read_subtitle_text(artifact, step=self.id)
+            doc = parse_srt(text)
             report = validate_doc(
                 doc,
                 min_duration=options.min_duration,
@@ -175,7 +206,10 @@ class ValidateSubtitles(Step):
 
 
 class ExportOptions(BaseModel):
-    format: Literal["srt", "ass", "vtt"] = Field(default="srt", description="输出格式")
+    format: Literal["auto", "srt", "ass", "vtt"] = Field(
+        default="auto",
+        description="输出格式；auto 保持输入格式，VTT 输入会转成 SRT",
+    )
     suffix: str = Field(default="", description="追加到文件名后的后缀；默认不追加")
     output_dir: str = Field(
         default="",
@@ -194,7 +228,10 @@ class ExportOptions(BaseModel):
 class ExportSubtitles(Step):
     id = "sub.export"
     title = "导出字幕"
-    description = "把字幕写成 UTF-8 + LF 文件；覆盖前保留 .bak，并登记为运行产物。"
+    description = (
+        "把字幕写成 UTF-8 + LF 文件；format=auto 保持输入格式并把 VTT 转成 SRT，"
+        "覆盖前保留 .bak。"
+    )
     inputs: dict[str, PortSpec] = {
         "subs": PortSpec(kind="any", required=False, multiple=True),
         "report": PortSpec(kind="validation", required=False, multiple=True),
@@ -211,7 +248,9 @@ class ExportSubtitles(Step):
             ctx, kind="any", suffixes=(".srt", ".ass", ".ssa", ".vtt")
         )
         sources = [
-            item for item in candidates if item.kind in ("srt", "ass", "vtt")
+            item
+            for item in candidates
+            if artifact_format(item) in ("srt", "ass", "vtt")
         ]
         if not sources:
             raise JsonRpcError(INVALID_PARAMS, "没有可导出的字幕", {"step": self.id})
@@ -228,21 +267,41 @@ class ExportSubtitles(Step):
         used_names: dict[Path, set[str]] = {}
 
         for position, artifact in enumerate(sources):
-            if options.format != artifact.kind:
+            input_format = artifact_format(artifact)
+            if input_format not in ("srt", "ass", "vtt"):
                 raise JsonRpcError(
                     INVALID_PARAMS,
-                    f"暂不支持 {artifact.kind} → {options.format} 转换"
-                    "（M2 仅导出与输入同格式的字幕）",
-                    {"step": self.id, "input_kind": artifact.kind, "format": options.format},
+                    f"不支持的字幕格式: {input_format}",
+                    {"step": self.id, "artifact": artifact.path},
+                )
+            if options.format == "auto":
+                # VTT 按项目约定自动转 SRT；其余保持输入格式。
+                target_format = "srt" if input_format == "vtt" else input_format
+            else:
+                target_format = options.format
+
+            if target_format == input_format:
+                text = read_text(artifact)
+            elif input_format == "vtt" and target_format == "srt":
+                text = vtt_to_srt(read_text(artifact))
+            else:
+                raise JsonRpcError(
+                    INVALID_PARAMS,
+                    f"暂不支持 {input_format} → {target_format} 转换",
+                    {
+                        "step": self.id,
+                        "input_kind": input_format,
+                        "format": target_format,
+                    },
                 )
 
             if options.filename:
                 name = options.filename
-                if not name.lower().endswith(f".{options.format}"):
-                    name = f"{name}.{options.format}"
+                if not name.lower().endswith(f".{target_format}"):
+                    name = f"{name}.{target_format}"
             else:
                 stem = artifact_stem(artifact) + options.suffix
-                name = f"{stem}.{options.format}"
+                name = f"{stem}.{target_format}"
 
             target_dir = (
                 self._source_output_dir(ctx, artifact)

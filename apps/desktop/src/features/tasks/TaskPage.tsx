@@ -19,7 +19,12 @@ import {
 import { onEngineEvent } from "../../lib/events";
 import { directoriesForPaths, fileName } from "../../lib/inputRouting";
 import { subtitleBaseName } from "../../lib/flow2";
-import type { RecipeDefinition, StepSpec, TaskSpec } from "../../lib/models";
+import {
+  VIDEO_EXTENSIONS,
+  type RecipeDefinition,
+  type StepSpec,
+  type TaskSpec,
+} from "../../lib/models";
 import { navigate } from "../../lib/router";
 import { restartEngine, type EngineStatus } from "../../lib/rpc";
 import { pickOriginalSubtitles, taskInputLabel } from "../../lib/tasks";
@@ -70,11 +75,19 @@ function isBilingualTask(task: TaskSpec | null): boolean {
 }
 
 function isExtractionRecipe(task: TaskSpec | null): boolean {
-  return Boolean(
-    task &&
-      (task.id === "batch_video_to_clean_srt" ||
-        task.id === "fn_extract_subtitles" ||
-        task.recipe_id === "batch_video_to_clean_srt"),
+  if (!task) return false;
+  if (
+    task.id === "batch_video_to_clean_srt" ||
+    task.id === "fn_extract_subtitles" ||
+    task.recipe_id === "batch_video_to_clean_srt"
+  ) {
+    return true;
+  }
+  // 自定义/内置的视频流水线也走提取逻辑：视频槽支持批量与自动填充原文。
+  return task.inputs.some(
+    (input) =>
+      input.name === "video" &&
+      input.accept.some((extension) => VIDEO_EXTENSIONS.includes(extension)),
   );
 }
 

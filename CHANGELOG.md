@@ -4,6 +4,34 @@
 
 ## Unreleased — Pipeline v2
 
+### SDH 删除后的空行与 # 占位行
+
+#### 修复
+- **SDH/Agent 删除整段后产生空字幕块**：`apply_text_edits` 不再保留文本为空的 cue；`serialize_srt` 同时跳过空 cue 并重新连续编号，避免输出“序号 + 时间轴 + 空行”的无效块。
+- **只有 `#` 的占位行**：`sub.normalize` 新增 `drop_hash_only`（默认开启），删除整行仅由 `#` 组成的行；`# TEMA ...` 这类带内容的行保留，继续交给 SDH 规则判断。
+
+#### 测试
+- 新增 SRT 序列化空 cue 跳过/重编号、SDH 文本编辑删除空 cue、`#` 占位行清理与保留 `# TEMA` 的用例。
+
+### 纯字幕流水线、VTT 与 ASS 时间轴
+
+#### 新增
+- **纯字幕流水线**：新增内置配方 `batch_subtitle_to_clean_srt`，直接对一批 SRT/VTT 执行清理、SDH 扫描、人工审核、校验并导出 SRT，不再需要视频输入。
+- **AI 去 SDH 流水线**：新增 `batch_subtitle_sdh_agent` 与 `batch_video_to_clean_srt_agent`，使用 `agent.sdh_review(auto_apply: true)` 自动应用 Agent 决策；删除比例超过阈值时自动转人工审核。
+- **编辑器编辑配方输入**：配方信息面板支持增删输入、修改名称/显示名/类型/接受扩展名/必填/多选，并可为输入绑定步骤端口；新增“首页任务目录”设置（显示为流水线/单项功能、分组、排序）。
+- **纯字幕新建模板**：配方下拉新增“＋ 新建纯字幕流水线”，默认输入 `.srt/.vtt`。
+- **编辑器按输入槽运行**：运行面板按配方输入分别设置文件/文件夹槽位，通过 `inputs_by_name` 启动；纯字幕运行自动创建命名项目，不再要求媒体文件。
+
+#### 变更
+- **VTT 自动转 SRT**：`sub.normalize` / `sub.validate` / `sub.sdh_scan` 接受 VTT，内部转换为 SRT；`sub.export` 新增 `format=auto`，保持输入格式并把 VTT 转成 SRT。
+- **ASS 时间轴支持**：`sub.fps_convert` / `sub.shift_time` 接受 `.ass/.ssa`，转换后仍输出 ASS，不再要求先转 SRT。
+- **字幕端口类型**：新增 `subtitle_doc` 总类型，与 `srt/ass/vtt` 互连；引擎校验、`pipeline.run` 注入与前端连线规则保持一致。
+- 内置帧率/平移/规范/校验/SDH 配方的输入扩展名同步放宽到对应字幕格式。
+
+#### 测试
+- 新增 VTT 解析/转换、VTT 进入规范流水线、纯字幕内置配方命名输入、步骤级 ASS 帧率/平移与 VTT→SRT 用例。
+- 前端新增 `subtitle_doc` 端口兼容、纯字幕模板与输入编辑用例。
+
 ### 双语合并拖放与产物目录
 
 #### 修复

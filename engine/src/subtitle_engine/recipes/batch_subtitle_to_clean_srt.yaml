@@ -1,0 +1,52 @@
+id: batch_subtitle_to_clean_srt
+name: 纯字幕 → 规范 SRT
+version: 1
+description: 直接处理字幕文件（SRT/VTT）→ 清理 → SDH 扫描/人工审核 → 校验 → 导出干净 SRT，无需视频。
+builtin: true
+inputs:
+  - name: files
+    label: 字幕文件
+    kind: files
+    accept: [".srt", ".vtt"]
+    required: true
+steps:
+  - id: normalize
+    uses: sub.normalize
+    with:
+      strip_html: true
+      merge_short: true
+      merge_identical: true
+      clean_person: true
+      clean_uppercase: false
+      zh_punctuation: false
+      drop_hash_only: true
+  - id: sdh_scan
+    uses: sub.sdh_scan
+    needs: [normalize]
+    with:
+      rules: [bracketed, parenthetical, speaker, uppercase, arrow, ellipsis_action]
+      uppercase_min_length: 4
+  - id: sdh_review
+    uses: human.review
+    needs: [sdh_scan]
+    with: {}
+  - id: validate
+    uses: sub.validate
+    needs: [sdh_review]
+    with:
+      fail_on_error: false
+  - id: export
+    uses: sub.export
+    needs: [validate]
+    with:
+      format: srt
+      suffix: ""
+      output_dir: "output/clean"
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: workflow
+  group: 主流程
+  order: 15

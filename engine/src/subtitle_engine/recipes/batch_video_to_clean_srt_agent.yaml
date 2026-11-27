@@ -1,0 +1,73 @@
+id: batch_video_to_clean_srt_agent
+name: 视频 → AI 去 SDH（自动）
+version: 1
+description: 提取内嵌字幕 → 清理 → SDH 扫描 → Agent 自动判定并应用，删除比例超阈值时转人工 → 导出。
+builtin: true
+inputs:
+  - name: video
+    label: 视频文件
+    kind: file
+    accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"]
+    multiple: true
+    required: true
+steps:
+  - id: probe
+    uses: media.probe
+  - id: extract
+    uses: media.extract_subtitles
+    needs: [probe]
+    with:
+      selection: auto
+      prefer_embedded: true
+  - id: normalize
+    uses: sub.normalize
+    needs: [extract]
+    with:
+      strip_html: true
+      merge_short: true
+      merge_identical: true
+      clean_person: true
+      clean_uppercase: false
+      zh_punctuation: false
+      drop_hash_only: true
+  - id: sdh_scan
+    uses: sub.sdh_scan
+    needs: [normalize]
+    with:
+      rules: [bracketed, parenthetical, speaker, uppercase, arrow, ellipsis_action]
+      uppercase_min_length: 4
+  - id: agent_review
+    uses: agent.sdh_review
+    needs: [sdh_scan]
+    with:
+      batch_size: 25
+      context_size: 2
+      min_confidence: 0.85
+      auto_apply: true
+      delete_ratio_limit: 0.30
+      language: en
+      target_language: zh
+  - id: human_review
+    uses: human.review
+    needs: [agent_review]
+    with: {}
+  - id: validate
+    uses: sub.validate
+    needs: [human_review]
+    with:
+      fail_on_error: false
+  - id: export
+    uses: sub.export
+    needs: [validate]
+    with:
+      format: srt
+      suffix: ""
+      output_dir: "output/clean"
+      backup: true
+outputs:
+  - from: export
+    key: files
+ui:
+  kind: workflow
+  group: AI 处理
+  order: 17

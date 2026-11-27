@@ -23,7 +23,7 @@ from ..core.step import Step, StepContext
 from ..domain.sdh import DEFAULT_SDH_RULES, apply_text_edits, scan_doc
 from ..domain.srt import parse_srt, serialize_srt
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
-from ._support import artifact_stem, read_text
+from ._support import artifact_stem, read_subtitle_text, read_text
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,9 @@ class ScanSdh(Step):
     id = "sub.sdh_scan"
     title = "扫描 SDH"
     description = "按括号/音效/说话人/全大写等规则标记 SDH 候选，原字幕不变。"
-    inputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    inputs: dict[str, PortSpec] = {
+        "subs": PortSpec(kind="subtitle_doc", multiple=True)
+    }
     outputs: dict[str, PortSpec] = {
         "subs": PortSpec(kind="srt", multiple=True),
         "candidates": PortSpec(kind="sdh_candidates", multiple=True),
@@ -70,7 +72,8 @@ class ScanSdh(Step):
 
         candidates_artifacts: list[Artifact] = []
         for position, artifact in enumerate(sources):
-            doc = parse_srt(read_text(artifact))
+            text, _source_format = read_subtitle_text(artifact, step=self.id)
+            doc = parse_srt(text)
             for warning in doc.warnings:
                 ctx.emit(
                     "step.log",

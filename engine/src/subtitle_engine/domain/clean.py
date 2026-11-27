@@ -25,6 +25,7 @@ _SPEAKER_PATTERN = re.compile(
 
 _TS_PATTERN = re.compile(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})")
 _UPPERCASE_PUNCT = re.compile(r"[.,\/#!$%\^&\*;:{}=\-_`~()?\"']")
+_HASH_ONLY_RE = re.compile(r"^#+$")
 
 
 @dataclass
@@ -35,6 +36,7 @@ class CleanStats:
     merged: int = 0
     uppercase: int = 0
     identical: int = 0
+    junk: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -44,6 +46,7 @@ class CleanStats:
             "merged": self.merged,
             "uppercase": self.uppercase,
             "identical": self.identical,
+            "junk": self.junk,
         }
 
     def describe(self) -> str:
@@ -54,6 +57,7 @@ class CleanStats:
             ("merged", "合并"),
             ("identical", "相同行合并"),
             ("uppercase", "大写行"),
+            ("junk", "占位行"),
         )
         parts = [
             f"{label}-{getattr(self, key)}" for key, label in labels if getattr(self, key) > 0
@@ -191,10 +195,12 @@ def clean_srt_text(
     clean_person: bool = True,
     merge_identical: bool = False,
     strip_html: bool = True,
+    drop_hash_only: bool = False,
 ) -> tuple[str, CleanStats]:
     """清理 SRT 内容，返回 ``(清理后的文本, 统计)``。
 
     默认参数与旧实现 ``process_subtitles_content`` 的默认行为一致。
+    ``drop_hash_only`` 开启时会删除整行只由 ``#`` 组成的占位行。
     """
     blocks = re.split(r"\n\s*\n", content.strip())
     processed_blocks: list[tuple[str, str]] = []
@@ -211,6 +217,15 @@ def clean_srt_text(
                 continue
             timestamp_line = lines[1]
             text_lines = lines[2:]
+
+        if drop_hash_only:
+            kept_lines: list[str] = []
+            for line in text_lines:
+                if _HASH_ONLY_RE.fullmatch(line.strip()):
+                    stats.junk += 1
+                    continue
+                kept_lines.append(line)
+            text_lines = kept_lines
 
         if clean_uppercase:
             new_text_lines = []

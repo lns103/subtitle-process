@@ -29,6 +29,7 @@ steps:
       clean_person: true
       clean_uppercase: false
       zh_punctuation: false
+      drop_hash_only: true
   - id: sdh_scan
     uses: sub.sdh_scan
     needs: [normalize]

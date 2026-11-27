@@ -22,6 +22,9 @@ _RECIPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 _BUILTIN_RECIPES = (
     "batch_video_to_clean_srt",
+    "batch_video_to_clean_srt_agent",
+    "batch_subtitle_to_clean_srt",
+    "batch_subtitle_sdh_agent",
     "batch_translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",

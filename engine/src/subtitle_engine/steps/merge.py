@@ -30,7 +30,13 @@ from ..domain.merge import (
 )
 from ..domain.srt import parse_srt
 from ..rpc.errors import INVALID_PARAMS, STEP_FAILED, JsonRpcError
-from ._support import artifact_meta, artifact_stem, ingest_run_inputs, read_text
+from ._support import (
+    artifact_meta,
+    artifact_stem,
+    ingest_run_inputs,
+    read_subtitle_text,
+    read_text,
+)
 
 _SRT_SUFFIXES = (".srt",)
 _ORIGINAL_HINTS = ("clean", "output", "extracted")
@@ -442,8 +448,10 @@ class MergeBilingual(Step):
         warnings: list[str] = []
 
         for position, pair in enumerate(pairs):
-            eng_entries = parse_srt_entries(read_text(pair.original))
-            zh_entries = parse_srt_entries(read_text(pair.translated))
+            eng_text, _ = read_subtitle_text(pair.original, step=self.id)
+            zh_text, _ = read_subtitle_text(pair.translated, step=self.id)
+            eng_entries = parse_srt_entries(eng_text)
+            zh_entries = parse_srt_entries(zh_text)
             merged = merge_entries(
                 eng_entries,
                 zh_entries,

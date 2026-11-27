@@ -37,6 +37,7 @@ from .models import (
     StepState,
     utc_now,
 )
+from .ports import port_compatible
 from .processes import ProcessRegistry
 from .registry import get_step
 from .reviews import ReviewPending
@@ -762,7 +763,7 @@ class JobManager:
             matches = [
                 artifact
                 for artifact in available
-                if spec.kind == "any" or artifact.kind == spec.kind or artifact.kind == "any"
+                if port_compatible(artifact.kind, spec.kind)
             ]
             if spec.multiple:
                 if matches:

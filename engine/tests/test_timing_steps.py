@@ -170,6 +170,7 @@ Hello
 class SeedOptions(BaseModel):
     text: str = Field(default=SEED_SRT)
     stem: str = Field(default="timing_sample")
+    kind: str = Field(default="srt")
 
 
 @register_step
@@ -186,9 +187,9 @@ class SeedTimingSrt(Step):
         options: SeedOptions = ctx.options  # type: ignore[assignment]
         artifact = ctx.services.store.put_bytes(
             key=options.stem,
-            kind="srt",
+            kind=options.kind,
             data=options.text.encode("utf-8"),
-            suffix=".srt",
+            suffix=f".{options.kind}",
             meta={"source_stem": options.stem, "output_stem": options.stem},
         )
         return {"subs": [artifact]}
@@ -298,6 +299,112 @@ async def test_fps_then_shift_chain(tmp_path: Path) -> None:
     assert fps_meta["output_stem"] == "timing_sample.fps"
     assert shift_meta["offset_seconds"] == 1.5
     assert shift_meta["source_hash"] == fps_artifacts[0]["hash"]
+
+
+async def test_fps_keeps_ass_format_for_ass_input(tmp_path: Path) -> None:
+    recipe = Recipe(
+        id="fps_ass",
+        name="fps ass",
+        steps=[
+            StepNode(
+                id="seed",
+                uses="test.seed_timing_srt",
+                options={"text": ASS_SAMPLE, "stem": "ep01", "kind": "ass"},
+            ),
+            StepNode(
+                id="fps",
+                uses="sub.fps_convert",
+                needs=["seed"],
+                options={"fps_in": 23.976, "fps_out": 25.0, "suffix": ".fps"},
+            ),
+        ],
+    )
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe).id)
+        artifacts = runtime.artifacts("fps")
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    assert len(artifacts) == 1
+    assert artifacts[0]["kind"] == "ass"
+    assert str(artifacts[0]["path"]).endswith(".ass")
+    expected = convert_fps_text(
+        ASS_SAMPLE, fps_in=23.976, fps_out=25.0, fmt="ass"
+    )
+    assert Path(artifacts[0]["path"]).read_text(encoding="utf-8") == expected
+
+
+async def test_shift_keeps_ass_format_for_ass_input(tmp_path: Path) -> None:
+    recipe = Recipe(
+        id="shift_ass",
+        name="shift ass",
+        steps=[
+            StepNode(
+                id="seed",
+                uses="test.seed_timing_srt",
+                options={"text": ASS_SAMPLE, "stem": "ep01", "kind": "ass"},
+            ),
+            StepNode(
+                id="shift",
+                uses="sub.shift_time",
+                needs=["seed"],
+                options={"offset_seconds": 1.5, "suffix": ".shifted"},
+            ),
+        ],
+    )
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe).id)
+        artifacts = runtime.artifacts("shift")
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    assert artifacts[0]["kind"] == "ass"
+    assert Path(artifacts[0]["path"]).read_text(encoding="utf-8") == shift_text(
+        ASS_SAMPLE, offset_seconds=1.5, fmt="ass"
+    )
+
+
+VTT_SAMPLE = """WEBVTT
+
+00:00:10.000 --> 00:00:12.000
+Hello
+"""
+
+
+async def test_fps_converts_vtt_input_to_srt(tmp_path: Path) -> None:
+    recipe = Recipe(
+        id="fps_vtt",
+        name="fps vtt",
+        steps=[
+            StepNode(
+                id="seed",
+                uses="test.seed_timing_srt",
+                options={"text": VTT_SAMPLE, "stem": "ep01", "kind": "vtt"},
+            ),
+            StepNode(
+                id="fps",
+                uses="sub.fps_convert",
+                needs=["seed"],
+                options={"fps_in": 23.976, "fps_out": 25.0},
+            ),
+        ],
+    )
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe).id)
+        artifacts = runtime.artifacts("fps")
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    assert artifacts[0]["kind"] == "srt"
+    text = Path(artifacts[0]["path"]).read_text(encoding="utf-8")
+    assert "WEBVTT" not in text
+    assert "-->" in text
 
 
 async def test_fps_equal_returns_source_without_new_artifact(tmp_path: Path) -> None:

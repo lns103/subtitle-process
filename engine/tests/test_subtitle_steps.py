@@ -13,7 +13,9 @@ from subtitle_engine import version
 from subtitle_engine.core.cache import StepCache
 from subtitle_engine.core.models import PortSpec, Recipe, StepNode
 from subtitle_engine.core.pipeline import JobManager
+from subtitle_engine.core.recipe_library import RecipeLibrary
 from subtitle_engine.core.registry import register_step, step_specs
+from subtitle_engine.core.reviews import ReviewStore
 from subtitle_engine.core.step import Step, StepContext
 from subtitle_engine.core.store import Store
 from subtitle_engine.steps.subtitle import ExportOptions
@@ -34,6 +36,7 @@ Real text
 class SeedOptions(BaseModel):
     text: str = Field(default=SAMPLE)
     stem: str = Field(default="sample")
+    kind: str = Field(default="srt")
 
 
 @register_step
@@ -48,11 +51,12 @@ class SeedSrt(Step):
 
     async def run(self, ctx: StepContext, inputs: dict) -> dict:
         options: SeedOptions = ctx.options  # type: ignore[assignment]
+        suffix = ".vtt" if options.kind == "vtt" else f".{options.kind}"
         artifact = ctx.services.store.put_bytes(
             key=options.stem,
-            kind="srt",
+            kind=options.kind,
             data=options.text.encode("utf-8"),
-            suffix=".srt",
+            suffix=suffix,
             meta={"source_stem": options.stem, "output_stem": options.stem},
         )
         return {"subs": [artifact]}
@@ -67,6 +71,7 @@ class Runtime:
             lambda event: self.events.append(event.model_dump(mode="json")),
             store=self.store,
             cache=self.cache,
+            reviews=ReviewStore(self.store),
             workspace=tmp_path / "workspace",
             retry_delay_s=0.01,
         )
@@ -281,3 +286,120 @@ def test_steps_list_exposes_m2_schemas() -> None:
     assert specs["media.extract_subtitles"].outputs["subs"].multiple is True
     assert specs["sub.export"].deterministic is False
     assert specs["sub.validate"].outputs["report"].kind == "validation"
+
+
+VTT_SAMPLE = """WEBVTT
+
+00:01.000 --> 00:03.000
+Hello <b>there</b>
+
+00:03.100 --> 00:04.000
+Real text
+"""
+
+
+async def test_vtt_input_is_converted_to_srt(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    recipe = Recipe(
+        id="vtt_to_srt",
+        name="vtt to srt",
+        steps=[
+            StepNode(
+                id="seed",
+                uses="test.seed_srt",
+                options={"text": VTT_SAMPLE, "stem": "EP01", "kind": "vtt"},
+            ),
+            StepNode(id="normalize", uses="sub.normalize", needs=["seed"]),
+            StepNode(id="validate", uses="sub.validate", needs=["normalize"]),
+            StepNode(
+                id="export",
+                uses="sub.export",
+                needs=["validate"],
+                options={"format": "auto", "suffix": "", "output_dir": str(output_dir)},
+            ),
+        ],
+    )
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe).id)
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    exported = output_dir / "EP01.srt"
+    assert exported.is_file()
+    text = exported.read_text(encoding="utf-8")
+    assert "Hello there" in text
+    assert "WEBVTT" not in text
+
+
+async def test_normalize_drops_hash_only_cues(tmp_path: Path) -> None:
+    content = """1
+00:00:01,000 --> 00:00:02,000
+#
+
+2
+00:00:02,000 --> 00:00:03,000
+# TEMA INSTRUMENTAL
+
+3
+00:00:03,000 --> 00:00:04,000
+Hello
+"""
+    output_dir = tmp_path / "out"
+    recipe = Recipe(
+        id="drop_hash",
+        name="drop hash",
+        steps=[
+            StepNode(
+                id="seed",
+                uses="test.seed_srt",
+                options={"text": content, "stem": "EP01"},
+            ),
+            StepNode(
+                id="normalize",
+                uses="sub.normalize",
+                needs=["seed"],
+                options={"drop_hash_only": True},
+            ),
+            StepNode(
+                id="export",
+                uses="sub.export",
+                needs=["normalize"],
+                options={"format": "srt", "suffix": "", "output_dir": str(output_dir)},
+            ),
+        ],
+    )
+    runtime = Runtime(tmp_path)
+    try:
+        finished = await runtime.jobs.wait(runtime.jobs.start(recipe).id)
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    text = (output_dir / "EP01.srt").read_text(encoding="utf-8")
+    assert "\n#\n" not in f"\n{text}\n"
+    assert "# TEMA INSTRUMENTAL" in text
+
+
+async def test_pure_subtitle_builtin_runs_with_named_vtt_input(tmp_path: Path) -> None:
+    source = tmp_path / "EP01.vtt"
+    source.write_text(VTT_SAMPLE, encoding="utf-8")
+    library = RecipeLibrary(tmp_path / "recipes")
+    recipe = library.get("batch_subtitle_to_clean_srt")
+    workspace = tmp_path / "workspace"
+    runtime = Runtime(tmp_path)
+    try:
+        run = runtime.jobs.start(
+            recipe,
+            inputs_by_name={"files": [str(source)]},
+            workspace=workspace,
+        )
+        finished = await runtime.jobs.wait(run.id)
+    finally:
+        await runtime.close()
+
+    assert finished.status == "done", finished.error
+    exported = workspace / "output" / "clean" / "EP01.srt"
+    assert exported.is_file()
+    assert "Hello there" in exported.read_text(encoding="utf-8")

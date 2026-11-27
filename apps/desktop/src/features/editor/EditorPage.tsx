@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Copy,
-  FileUp,
   LayoutGrid,
   Loader2,
   Play,
@@ -27,13 +26,14 @@ import {
   validateRecipePayload,
 } from "../../lib/api";
 import type { RecipeSummary, StepSpec, ValidationResult } from "../../lib/models";
+import { isVideoPath } from "../../lib/models";
 import { layoutGraph, stripRecipeUi } from "../../lib/recipeGraph";
 import { navigate } from "../../lib/router";
-import { pickFiles } from "../../lib/rpc";
-import { isEditorDirty, useEditorStore } from "../../stores/editorStore";
+import { isEditorDirty, useEditorStore, type NewRecipeMode } from "../../stores/editorStore";
 import { useRunStore } from "../../stores/runStore";
 import { FlowCanvas } from "./FlowCanvas";
 import { Inspector } from "./Inspector";
+import { RunInputs } from "./RunInputs";
 import { SaveAsDialog } from "./SaveAsDialog";
 import { StepPanel } from "./StepPanel";
 
@@ -42,19 +42,30 @@ interface EditorPageProps {
   paths: string[];
 }
 
+function fileNameBase(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.replace(/\.[^.]+$/, "");
+}
+
+function projectNameForRun(recipeName: string, paths: string[]): string {
+  const fromFile = paths.length > 0 ? fileNameBase(paths[0]) : "";
+  return (fromFile || recipeName || "字幕流水线").slice(0, 120);
+}
+
 export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
   const [specs, setSpecs] = useState<StepSpec[]>([]);
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [inputPath, setInputPath] = useState(paths[0] ?? "");
+  const [slots, setSlots] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<null | "saveAs" | "duplicate">(null);
 
   const recipeId = useEditorStore((state) => state.recipeId);
   const name = useEditorStore((state) => state.name);
   const builtin = useEditorStore((state) => state.builtin);
+  const inputs = useEditorStore((state) => state.inputs);
   const nodes = useEditorStore((state) => state.nodes);
   const issues = useEditorStore((state) => state.issues);
   const saveState = useEditorStore((state) => state.saveState);
@@ -116,8 +127,12 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
   }, [initialRecipeId, loadRecipe, newRecipe]);
 
   useEffect(() => {
-    if (paths[0]) setInputPath((current) => current || paths[0]);
-  }, [paths]);
+    const firstName = inputs[0]?.name;
+    if (!firstName || paths.length === 0) return;
+    setSlots((current) =>
+      current[firstName]?.length ? current : { ...current, [firstName]: paths },
+    );
+  }, [inputs, paths]);
 
   const showNotice = useCallback((message: string | null) => {
     setNotice(message);
@@ -184,9 +199,15 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
   }, [builtin, persist, recipeId]);
 
   const handleRun = useCallback(async () => {
-    const input = inputPath.trim();
-    if (!input) {
-      showNotice("请先选择输入文件（或从首页拖入媒体）");
+    const missing = inputs.filter(
+      (input) => input.required && (slots[input.name]?.length ?? 0) === 0,
+    );
+    if (missing.length > 0) {
+      showNotice(
+        `请先填写必填输入：${missing
+          .map((input) => input.label?.trim() || input.name)
+          .join("、")}`,
+      );
       return;
     }
     const result = await validateNow();
@@ -195,10 +216,21 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
     try {
       const { recipe } = toRecipe();
       setSaveState("saving");
-      const project = await createProject({ media_path: input });
+      const inputsByName: Record<string, string[]> = {};
+      for (const input of inputs) {
+        const values = slots[input.name] ?? [];
+        if (values.length > 0) inputsByName[input.name] = values;
+      }
+      const allPaths = Array.from(new Set(Object.values(inputsByName).flat()));
+      const single = allPaths.length === 1 ? allPaths[0] : null;
+      const project =
+        single && isVideoPath(single)
+          ? await createProject({ media_path: single })
+          : await createProject({ name: projectNameForRun(name, allPaths) });
       const started = await runRecipePayload({
         recipe: stripRecipeUi(recipe),
-        inputs: [input],
+        inputs: allPaths,
+        inputsByName,
         projectId: project.id,
       });
       useRunStore.getState().begin(started.run_id, project.id);
@@ -210,13 +242,27 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
     } finally {
       setBusy(false);
     }
-  }, [dirty, inputPath, setSaveState, showNotice, toRecipe, validateNow]);
+  }, [
+    dirty,
+    inputs,
+    name,
+    setSaveState,
+    showNotice,
+    slots,
+    toRecipe,
+    validateNow,
+  ]);
 
   const handleSelect = useCallback(
-    async (nextId: string) => {
+    async (nextId: string, mode?: NewRecipeMode) => {
       if (!nextId) return;
-      if (nextId === "__new__") {
-        newRecipe(specs, "未命名配方");
+      if (nextId === "__new__" || nextId === "__new_subtitle__") {
+        const subtitle = nextId === "__new_subtitle__" || mode === "subtitle";
+        newRecipe(
+          specs,
+          subtitle ? "未命名纯字幕流水线" : "未命名配方",
+          subtitle ? "subtitle" : "video",
+        );
         navigate({ name: "editor", recipeId: null });
         return;
       }
@@ -268,16 +314,10 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleSave]);
 
-  const chooseInput = useCallback(async () => {
-    try {
-      const picked = await pickFiles();
-      if (picked[0]) setInputPath(picked[0]);
-    } catch (error) {
-      showNotice(`无法打开文件选择器：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, [showNotice]);
-
   const unsavedRecipe = !recipeId || recipeId === "untitled";
+  const missingRequired = inputs.some(
+    (input) => input.required && (slots[input.name]?.length ?? 0) === 0,
+  );
   const statusText = unsavedRecipe
     ? "未保存的新配方"
     : saveState === "saving"
@@ -325,6 +365,7 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
             </option>
           ))}
           <option value="__new__">＋ 新建空白配方</option>
+          <option value="__new_subtitle__">＋ 新建纯字幕流水线</option>
         </select>
 
         <span
@@ -427,46 +468,39 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
           ) : (
             <FlowCanvas />
           )}
-          <div className="absolute bottom-3 left-3 z-10 flex max-w-xl items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-2.5 py-2 shadow-sm">
-            <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-slate-500">
-              <FileUp className="h-3.5 w-3.5 shrink-0" />
-              <input
-                value={inputPath}
-                id="editor-input-path"
-                name="input-path"
-                onChange={(event) => setInputPath(event.target.value)}
-                placeholder="运行输入文件路径（拖入首页或点击选择）"
-                className="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => void chooseInput()}
-              className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
-            >
-              选择…
-            </button>
-            {running ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const jobId = useRunStore.getState().runId;
-                  if (jobId) void cancelJob(jobId).catch((error) => showNotice(String(error)));
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-500"
-              >
-                <Square className="h-3 w-3" /> 取消
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={busy || !inputPath.trim() || nodes.length === 0}
-                onClick={() => void handleRun()}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                <Play className="h-3 w-3" /> 运行
-              </button>
-            )}
+          <div className="absolute bottom-3 left-3 z-10 flex w-[min(42rem,calc(100%-1.5rem))] flex-col gap-2 rounded-xl border border-slate-200 bg-white/95 px-2.5 py-2 shadow-sm">
+            <RunInputs
+              inputs={inputs}
+              slots={slots}
+              disabled={busy || running}
+              onChange={(inputName, next) =>
+                setSlots((current) => ({ ...current, [inputName]: next }))
+              }
+              onError={showNotice}
+            />
+            <div className="flex items-center justify-end gap-2">
+              {running ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const jobId = useRunStore.getState().runId;
+                    if (jobId) void cancelJob(jobId).catch((error) => showNotice(String(error)));
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-500"
+                >
+                  <Square className="h-3 w-3" /> 取消
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || missingRequired || nodes.length === 0}
+                  onClick={() => void handleRun()}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  <Play className="h-3 w-3" /> 运行
+                </button>
+              )}
+            </div>
           </div>
 
           {runStatus !== "idle" ? (

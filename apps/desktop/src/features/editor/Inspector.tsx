@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { CircleAlert, Copy, Plus, Trash2, TriangleAlert, Wrench } from "lucide-react";
-import type { StepSpec, ValidationIssue } from "../../lib/models";
+import type {
+  RecipeInput,
+  RecipeInputKind,
+  StepSpec,
+  ValidationIssue,
+} from "../../lib/models";
 import { issueCountsByStep } from "../../lib/recipeGraph";
 import { useEditorStore } from "../../stores/editorStore";
 import { SchemaForm } from "./SchemaForm";
@@ -28,17 +33,295 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
   );
 }
 
+const INPUT_KIND_LABELS: Record<RecipeInputKind, string> = {
+  file: "单文件",
+  files: "多文件",
+  folder: "文件夹",
+};
+
+function parseAccept(value: string): string[] {
+  return value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => (item === "*" || item.startsWith(".") ? item : `.${item}`));
+}
+
+function InputsEditor() {
+  const inputs = useEditorStore((state) => state.inputs);
+  const nodes = useEditorStore((state) => state.nodes);
+  const specs = useEditorStore((state) => state.specs);
+  const setMeta = useEditorStore((state) => state.setMeta);
+
+  const updateInput = (index: number, patch: Partial<RecipeInput>) => {
+    setMeta({
+      inputs: inputs.map((item, position) =>
+        position === index ? { ...item, ...patch } : item,
+      ),
+    });
+  };
+
+  const removeInput = (index: number) => {
+    setMeta({ inputs: inputs.filter((_, position) => position !== index) });
+  };
+
+  const addInput = () => {
+    setMeta({
+      inputs: [
+        ...inputs,
+        {
+          name: `input_${inputs.length + 1}`,
+          label: "",
+          kind: "files",
+          accept: [".srt", ".vtt"],
+          required: true,
+          multiple: true,
+          bind: [],
+        },
+      ],
+    });
+  };
+
+  const updateBinding = (
+    index: number,
+    bindIndex: number,
+    patch: { step?: string; port?: string },
+  ) => {
+    const input = inputs[index];
+    const bind = [...(input.bind ?? [])];
+    bind[bindIndex] = { ...bind[bindIndex], ...patch };
+    updateInput(index, { bind });
+  };
+
+  const addBinding = (index: number) => {
+    const input = inputs[index];
+    const firstNode = nodes[0];
+    if (!firstNode) return;
+    const spec = specs.find((item) => item.id === firstNode.data.uses);
+    const port = spec ? Object.keys(spec.inputs)[0] : "";
+    updateInput(index, {
+      bind: [...(input.bind ?? []), { step: firstNode.id, port: port ?? "" }],
+    });
+  };
+
+  const removeBinding = (index: number, bindIndex: number) => {
+    const input = inputs[index];
+    updateInput(index, {
+      bind: (input.bind ?? []).filter((_, position) => position !== bindIndex),
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">配方输入</span>
+        <button
+          type="button"
+          onClick={addInput}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+        >
+          <Plus className="h-3 w-3" /> 添加输入
+        </button>
+      </div>
+      {inputs.length === 0 ? (
+        <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-400">
+          没有命名输入；运行时可只传路径列表。
+        </p>
+      ) : null}
+      {inputs.map((input, index) => {
+        const bindingStepIds = new Set(nodes.map((node) => node.id));
+        return (
+          <div
+            key={`${input.name}-${index}`}
+            data-testid={`recipe-input-${index}`}
+            className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2"
+          >
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <span>输入 {index + 1}</span>
+              <button
+                type="button"
+                title="删除输入"
+                onClick={() => removeInput(index)}
+                className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-600"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1 text-[11px] text-slate-500">
+                <span>名称</span>
+                <input
+                  value={input.name}
+                  onChange={(event) => updateInput(index, { name: event.target.value })}
+                  className="w-full rounded border border-slate-200 bg-white px-2 py-1 font-mono text-xs text-slate-700 outline-none focus:border-slate-400"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] text-slate-500">
+                <span>显示名</span>
+                <input
+                  value={input.label ?? ""}
+                  placeholder={input.name}
+                  onChange={(event) => updateInput(index, { label: event.target.value })}
+                  className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1 text-[11px] text-slate-500">
+                <span>类型</span>
+                <select
+                  value={input.kind}
+                  onChange={(event) =>
+                    updateInput(index, { kind: event.target.value as RecipeInputKind })
+                  }
+                  className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+                >
+                  {Object.entries(INPUT_KIND_LABELS).map(([kind, label]) => (
+                    <option key={kind} value={kind}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-[11px] text-slate-500">
+                <span>接受扩展名</span>
+                <input
+                  value={input.accept.join(", ")}
+                  placeholder=".srt, .vtt"
+                  onChange={(event) =>
+                    updateInput(index, { accept: parseAccept(event.target.value) })
+                  }
+                  className="w-full rounded border border-slate-200 bg-white px-2 py-1 font-mono text-xs text-slate-700 outline-none focus:border-slate-400"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={input.required}
+                  onChange={(event) =>
+                    updateInput(index, { required: event.target.checked })
+                  }
+                  className="h-3.5 w-3.5 rounded border-slate-300"
+                />
+                必填
+              </label>
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={input.multiple === true}
+                  onChange={(event) =>
+                    updateInput(index, { multiple: event.target.checked })
+                  }
+                  className="h-3.5 w-3.5 rounded border-slate-300"
+                />
+                允许多个
+              </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <span>绑定端口</span>
+                <button
+                  type="button"
+                  disabled={nodes.length === 0}
+                  onClick={() => addBinding(index)}
+                  className="text-[11px] text-slate-500 hover:text-slate-700 disabled:opacity-40"
+                >
+                  + 添加绑定
+                </button>
+              </div>
+              {(input.bind ?? []).map((binding, bindIndex) => {
+                const node = nodes.find((item) => item.id === binding.step);
+                const spec = specs.find((item) => item.id === node?.data.uses);
+                const ports = spec ? Object.keys(spec.inputs) : [];
+                return (
+                  <div
+                    key={`${binding.step}-${bindIndex}`}
+                    className="flex items-center gap-1.5"
+                  >
+                    <select
+                      value={binding.step}
+                      onChange={(event) => {
+                        const step = event.target.value;
+                        const nextNode = nodes.find((item) => item.id === step);
+                        const nextSpec = specs.find(
+                          (item) => item.id === nextNode?.data.uses,
+                        );
+                        const nextPort = nextSpec
+                          ? (Object.keys(nextSpec.inputs)[0] ?? "")
+                          : "";
+                        updateBinding(index, bindIndex, { step, port: nextPort });
+                      }}
+                      className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700"
+                    >
+                      {!bindingStepIds.has(binding.step) ? (
+                        <option value={binding.step}>{binding.step}（缺失）</option>
+                      ) : null}
+                      {nodes.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.id} · {item.data.uses}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={binding.port}
+                      onChange={(event) =>
+                        updateBinding(index, bindIndex, { port: event.target.value })
+                      }
+                      className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700"
+                    >
+                      {binding.port && !ports.includes(binding.port) ? (
+                        <option value={binding.port}>{binding.port}（缺失）</option>
+                      ) : null}
+                      {ports.map((port) => (
+                        <option key={port} value={port}>
+                          {port}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      title="删除绑定"
+                      onClick={() => removeBinding(index, bindIndex)}
+                      className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-600"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RecipeMetaForm() {
   const recipeId = useEditorStore((state) => state.recipeId);
   const name = useEditorStore((state) => state.name);
   const description = useEditorStore((state) => state.description);
   const builtin = useEditorStore((state) => state.builtin);
   const inputs = useEditorStore((state) => state.inputs);
+  const ui = useEditorStore((state) => state.ui);
   const setMeta = useEditorStore((state) => state.setMeta);
   const issues = useEditorStore((state) => state.issues);
   const validationOk = useEditorStore((state) => state.validationOk);
 
   const acceptText = inputs.map((item) => item.accept.join(", ")).filter(Boolean).join(", ");
+  const uiKind = typeof ui.kind === "string" ? ui.kind : "";
+  const uiGroup = typeof ui.group === "string" ? ui.group : "";
+  const uiOrder = typeof ui.order === "number" ? ui.order : 100;
+
+  const updateUi = (patch: Record<string, unknown>) => {
+    setMeta({ ui: { ...ui, ...patch } });
+  };
 
   return (
     <div className="space-y-4 p-4">
@@ -47,7 +330,8 @@ function RecipeMetaForm() {
           <Wrench className="h-4 w-4" /> 配方信息
         </h3>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-          点击画布节点可编辑步骤参数。这里修改名称、id 与描述；id 只能包含字母、数字、_ . -。
+          点击画布节点可编辑步骤参数。这里修改名称、id、描述、输入与首页展示方式；id
+          只能包含字母、数字、_ . -。
         </p>
       </div>
 
@@ -89,11 +373,51 @@ function RecipeMetaForm() {
         />
       </label>
 
-      <div className="space-y-1 text-xs text-slate-600">
-        <span className="font-medium">输入接受类型</span>
-        <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-500">
-          {acceptText || "任意文件"}
-        </p>
+      {builtin ? (
+        <div className="space-y-1 text-xs text-slate-600">
+          <span className="font-medium">输入接受类型</span>
+          <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-500">
+            {acceptText || "任意文件"}
+          </p>
+        </div>
+      ) : (
+        <InputsEditor />
+      )}
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+        <div className="text-xs font-semibold text-slate-700">首页任务目录</div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1 text-[11px] text-slate-500">
+            <span>显示为</span>
+            <select
+              value={uiKind}
+              onChange={(event) => updateUi({ kind: event.target.value })}
+              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+            >
+              <option value="">不显示</option>
+              <option value="workflow">流水线</option>
+              <option value="function">单项功能</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-[11px] text-slate-500">
+            <span>分组</span>
+            <input
+              value={uiGroup}
+              placeholder="其他"
+              onChange={(event) => updateUi({ group: event.target.value })}
+              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+            />
+          </label>
+        </div>
+        <label className="block space-y-1 text-[11px] text-slate-500">
+          <span>排序（越小越靠前）</span>
+          <input
+            type="number"
+            value={uiOrder}
+            onChange={(event) => updateUi({ order: Number(event.target.value) || 0 })}
+            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-slate-400"
+          />
+        </label>
       </div>
 
       <div>

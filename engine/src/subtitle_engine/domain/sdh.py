@@ -188,12 +188,18 @@ def scan_doc(
 
 
 def apply_text_edits(cues: Iterable[Cue], edits: dict[int, str]) -> list[Cue]:
-    """按 ``segment_index → 新文本`` 生成新的 cue 列表；不改时间轴。"""
+    """按 ``segment_index → 新文本`` 生成新的 cue 列表；不改时间轴。
+
+    删除（新文本为空/仅空白）的 cue 不再保留，避免输出空字幕块。
+    """
     result: list[Cue] = []
     for cue in cues:
         if cue.index in edits:
+            new_text = edits[cue.index]
+            if not new_text.strip():
+                continue
             result.append(
-                Cue(index=cue.index, start=cue.start, end=cue.end, text=edits[cue.index])
+                Cue(index=cue.index, start=cue.start, end=cue.end, text=new_text)
             )
         else:
             result.append(cue)

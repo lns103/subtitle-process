@@ -1,13 +1,13 @@
 id: fn_validate
 name: 校验字幕
 version: 1
-description: 检查空文本、时间轴倒挂/重叠、时长、CPS 与行宽。
+description: 检查空文本、时间轴倒挂/重叠、时长、CPS 与行宽；VTT 自动转 SRT。
 builtin: true
 inputs:
   - name: subs
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".vtt"]
     required: true
     multiple: true
     bind:

@@ -1,13 +1,13 @@
 id: batch_shift_fps
 name: 批量帧率转换
 version: 1
-description: 按帧率比例缩放一批 SRT 的时间轴，输出 <原名>.fps.srt。
+description: 按帧率比例缩放一批字幕的时间轴；支持 SRT / ASS / SSA / VTT，ASS 输出仍为 ASS。
 builtin: true
 inputs:
   - name: files
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".ass", ".ssa", ".vtt"]
     required: true
 steps:
   - id: fps
@@ -16,16 +16,11 @@ steps:
       fps_in: 23.976
       fps_out: 25.0
       suffix: ".fps"
-  - id: validate
-    uses: sub.validate
-    needs: [fps]
-    with:
-      fail_on_error: false
   - id: export
     uses: sub.export
-    needs: [validate]
+    needs: [fps]
     with:
-      format: srt
+      format: auto
       suffix: ""
       output_dir: "output/fps"
       backup: true

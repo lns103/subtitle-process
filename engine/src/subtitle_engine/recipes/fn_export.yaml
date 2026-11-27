@@ -1,13 +1,13 @@
 id: fn_export
 name: 导出字幕
 version: 1
-description: 把字幕写成 UTF-8 + LF 文件，覆盖前保留 .bak。
+description: 把字幕写成 UTF-8 + LF 文件；auto 保持输入格式并把 VTT 转成 SRT，覆盖前保留 .bak。
 builtin: true
 inputs:
   - name: subs
     label: 字幕文件
     kind: files
-    accept: [".srt", ".ass", ".vtt"]
+    accept: [".srt", ".ass", ".ssa", ".vtt"]
     required: true
     multiple: true
     bind:
@@ -17,7 +17,7 @@ steps:
   - id: export
     uses: sub.export
     with:
-      format: srt
+      format: auto
       suffix: ""
       output_dir: ""
       to_source: true

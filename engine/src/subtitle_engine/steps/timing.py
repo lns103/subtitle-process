@@ -17,9 +17,17 @@ from ..core.registry import register_step
 from ..core.step import Step, StepContext
 from ..domain.timing import convert_fps_text, parse_fps, shift_text
 from ..rpc.errors import STEP_FAILED, JsonRpcError
-from ._support import artifact_meta, artifact_stem, ingest_run_inputs, read_text
+from ._support import (
+    artifact_meta,
+    artifact_stem,
+    ingest_run_inputs,
+    read_subtitle_text,
+)
 
 logger = logging.getLogger(__name__)
+
+_SUBTITLE_SUFFIXES = (".srt", ".ass", ".ssa", ".vtt")
+_FORMAT_SUFFIX = {"srt": ".srt", "ass": ".ass", "vtt": ".srt"}
 
 
 class FpsConvertOptions(BaseModel):
@@ -34,18 +42,15 @@ class ShiftTimeOptions(BaseModel):
 
 
 def _load_sources(ctx: StepContext, inputs: dict) -> list[Artifact]:
-    return inputs.get("subs") or ingest_run_inputs(ctx, suffixes=(".srt",))
+    return inputs.get("subs") or ingest_run_inputs(ctx, suffixes=_SUBTITLE_SUFFIXES)
 
 
-def _read_source(artifact: Artifact, *, step: str) -> str:
-    try:
-        return read_text(artifact)
-    except OSError as exc:
-        raise JsonRpcError(
-            STEP_FAILED,
-            f"读取字幕失败: {artifact.path}",
-            {"step": step, "artifact": artifact.path, "error": str(exc)},
-        ) from exc
+def _read_source(
+    artifact: Artifact, *, step: str
+) -> tuple[str, str]:
+    """读取字幕并返回 ``(文本, 实际处理格式)``；VTT 自动转 SRT。"""
+    text, fmt = read_subtitle_text(artifact, step=step, allowed=("srt", "ass", "vtt"))
+    return text, ("srt" if fmt == "vtt" else fmt)
 
 
 def _write_result(
@@ -53,6 +58,7 @@ def _write_result(
     artifact: Artifact,
     text: str,
     *,
+    fmt: str,
     suffix: str,
     transform_meta: dict[str, object],
 ) -> Artifact:
@@ -70,9 +76,9 @@ def _write_result(
     data = (text.rstrip("\n") + "\n").encode("utf-8")
     return ctx.services.store.put_bytes(
         key=output_stem,
-        kind="srt",
+        kind=fmt,
         data=data,
-        suffix=".srt",
+        suffix=_FORMAT_SUFFIX[fmt],
         meta=meta,
     )
 
@@ -81,11 +87,14 @@ def _write_result(
 class FpsConvert(Step):
     id = "sub.fps_convert"
     title = "帧率转换"
-    description = "按源/目标帧率比例缩放 SRT 时间轴，文本框内容保持不变。"
+    description = (
+        "按源/目标帧率比例缩放字幕时间轴；支持 SRT / ASS / SSA / VTT，"
+        "ASS 保留原格式，VTT 转 SRT。"
+    )
     inputs: dict[str, PortSpec] = {
-        "subs": PortSpec(kind="srt", required=False, multiple=True)
+        "subs": PortSpec(kind="subtitle_doc", required=False, multiple=True)
     }
-    outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="subtitle_doc", multiple=True)}
     Options = FpsConvertOptions
     requires_agent = False
     deterministic = True
@@ -100,12 +109,12 @@ class FpsConvert(Step):
             try:
                 fps_in = parse_fps(options.fps_in)
                 fps_out = parse_fps(options.fps_out)
-                text = _read_source(artifact, step=self.id)
+                text, fmt = _read_source(artifact, step=self.id)
                 converted = convert_fps_text(
                     text,
                     fps_in=options.fps_in,
                     fps_out=options.fps_out,
-                    fmt="srt",
+                    fmt=fmt,
                 )
             except ValueError as exc:
                 raise JsonRpcError(
@@ -134,6 +143,7 @@ class FpsConvert(Step):
                     ctx,
                     artifact,
                     converted,
+                    fmt=fmt,
                     suffix=options.suffix,
                     transform_meta={
                         "fps_in": options.fps_in,
@@ -146,6 +156,7 @@ class FpsConvert(Step):
                     level="info",
                     message=(
                         f"已转换帧率 {stem}: {options.fps_in} → {options.fps_out}"
+                        + ("（ASS 保留原格式）" if fmt == "ass" else "")
                     ),
                 )
 
@@ -163,11 +174,14 @@ class FpsConvert(Step):
 class ShiftTime(Step):
     id = "sub.shift_time"
     title = "时间轴平移"
-    description = "整体平移 SRT 时间轴；负值提前，早于 0 的时间夹到 0。"
+    description = (
+        "整体平移字幕时间轴；支持 SRT / ASS / SSA / VTT，ASS 保留原格式，"
+        "负值提前，早于 0 的时间夹到 0。"
+    )
     inputs: dict[str, PortSpec] = {
-        "subs": PortSpec(kind="srt", required=False, multiple=True)
+        "subs": PortSpec(kind="subtitle_doc", required=False, multiple=True)
     }
-    outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="srt", multiple=True)}
+    outputs: dict[str, PortSpec] = {"subs": PortSpec(kind="subtitle_doc", multiple=True)}
     Options = ShiftTimeOptions
     requires_agent = False
     deterministic = True
@@ -180,11 +194,11 @@ class ShiftTime(Step):
         for position, artifact in enumerate(sources):
             stem = artifact_stem(artifact)
             try:
-                text = _read_source(artifact, step=self.id)
+                text, fmt = _read_source(artifact, step=self.id)
                 shifted = shift_text(
                     text,
                     offset_seconds=options.offset_seconds,
-                    fmt="srt",
+                    fmt=fmt,
                 )
             except ValueError as exc:
                 raise JsonRpcError(
@@ -209,6 +223,7 @@ class ShiftTime(Step):
                     ctx,
                     artifact,
                     shifted,
+                    fmt=fmt,
                     suffix=options.suffix,
                     transform_meta={"offset_seconds": options.offset_seconds},
                 )

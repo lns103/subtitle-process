@@ -1,13 +1,13 @@
 id: fn_normalize
 name: 规范字幕
 version: 1
-description: 清理括号/标签/人名提示，合并短句与相同行。
+description: 清理括号/标签/人名提示，合并短句与相同行；VTT 自动转 SRT。
 builtin: true
 inputs:
   - name: subs
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".vtt"]
     required: true
     multiple: true
     bind:
@@ -23,6 +23,7 @@ steps:
       clean_person: true
       clean_uppercase: false
       zh_punctuation: false
+      drop_hash_only: true
   - id: export
     uses: sub.export
     needs: [normalize]

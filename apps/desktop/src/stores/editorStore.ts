@@ -54,6 +54,7 @@ export interface EditorSnapshot extends EditorMeta {
 }
 
 export type EditorSaveState = "idle" | "dirty" | "saving" | "saved";
+export type NewRecipeMode = "video" | "subtitle";
 
 export interface EditorState extends EditorMeta {
   builtin: boolean;
@@ -72,7 +73,7 @@ export interface EditorState extends EditorMeta {
 
 export interface EditorActions {
   loadRecipe: (recipe: RecipeDefinition, specs: StepSpec[]) => void;
-  newRecipe: (specs: StepSpec[], name?: string) => void;
+  newRecipe: (specs: StepSpec[], name?: string, mode?: NewRecipeMode) => void;
   setMeta: (patch: Partial<EditorMeta>) => void;
   addStep: (spec: StepSpec, position: { x: number; y: number }) => string;
   removeNodes: (ids: string[]) => void;
@@ -129,16 +130,33 @@ export function isEditorDirty(state: EditorState): boolean {
   return serializeSnapshot(state) !== state.baseline;
 }
 
-function blankMeta(name = "未命名配方"): EditorMeta {
+function blankMeta(name = "未命名配方", mode: NewRecipeMode = "video"): EditorMeta {
+  const subtitle = mode === "subtitle";
   return {
     recipeId: "untitled",
     name,
     version: 1,
     description: "",
-    inputs: [
-      { name: "video", kind: "file", accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"], required: true },
-    ],
-    ui: {},
+    inputs: subtitle
+      ? [
+          {
+            name: "files",
+            label: "字幕文件",
+            kind: "files",
+            accept: [".srt", ".vtt"],
+            required: true,
+            multiple: true,
+          },
+        ]
+      : [
+          {
+            name: "video",
+            kind: "file",
+            accept: [".mkv", ".mp4", ".mov", ".avi", ".ts"],
+            required: true,
+          },
+        ],
+    ui: subtitle ? { kind: "workflow", group: "我的流水线", order: 100 } : {},
   };
 }
 
@@ -206,8 +224,8 @@ export const useEditorStore = create<EditorStore>()(
         useEditorStore.temporal.getState().clear();
       },
 
-      newRecipe: (specs, name) => {
-        const nextMeta = blankMeta(name);
+      newRecipe: (specs, name, mode = "video") => {
+        const nextMeta = blankMeta(name, mode);
         const snapshot = initialSnapshot(nextMeta);
         set({
           ...nextMeta,

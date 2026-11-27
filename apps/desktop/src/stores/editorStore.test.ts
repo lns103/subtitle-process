@@ -155,4 +155,33 @@ describe("editorStore", () => {
     expect(useEditorStore.getState().savedAt).not.toBeNull();
     expect(isEditorDirty(useEditorStore.getState())).toBe(false);
   });
+
+  it("纯字幕模板使用字幕输入并出现在任务目录", () => {
+    useEditorStore.getState().newRecipe(SPECS, "纯字幕", "subtitle");
+    const state = useEditorStore.getState();
+    expect(state.inputs[0]).toMatchObject({
+      name: "files",
+      kind: "files",
+      accept: [".srt", ".vtt"],
+      multiple: true,
+    });
+    expect(state.ui).toMatchObject({ kind: "workflow" });
+  });
+
+  it("可以修改配方输入类型并进入 dirty", () => {
+    const next = [
+      {
+        name: "subs",
+        label: "字幕",
+        kind: "file" as const,
+        accept: [".ass"],
+        required: false,
+        multiple: false,
+        bind: [{ step: "probe", port: "subs" }],
+      },
+    ];
+    useEditorStore.getState().setMeta({ inputs: next });
+    expect(useEditorStore.getState().inputs).toEqual(next);
+    expect(isEditorDirty(useEditorStore.getState())).toBe(true);
+  });
 });

@@ -1,13 +1,13 @@
 id: batch_normalize
 name: 批量规范字幕
 version: 1
-description: 对一批 SRT 执行清理、合并与校验，输出 <原名>.normalized.srt。
+description: 对一批 SRT/VTT 执行清理、合并与校验，输出 <原名>.normalized.srt。
 builtin: true
 inputs:
   - name: files
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".vtt"]
     required: true
 steps:
   - id: normalize
@@ -19,6 +19,7 @@ steps:
       clean_person: true
       clean_uppercase: false
       zh_punctuation: false
+      drop_hash_only: true
   - id: validate
     uses: sub.validate
     needs: [normalize]

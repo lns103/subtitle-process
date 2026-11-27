@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from ..rpc.errors import RECIPE_INVALID, JsonRpcError
 from .models import Recipe, StepNode, ValidationIssue, ValidationResult
+from .ports import port_compatible
 from .registry import get_step
 
 _WHEN_RE = re.compile(r"^\$\{options\.([A-Za-z_][A-Za-z0-9_.]*)\}$")
@@ -245,7 +246,7 @@ def _check_ports(
 
 
 def _compatible(output_kind: str, input_kind: str) -> bool:
-    return output_kind == "any" or input_kind == "any" or output_kind == input_kind
+    return port_compatible(output_kind, input_kind)
 
 
 def _check_agent(
@@ -314,7 +315,9 @@ def _check_export_path(
                 )
             )
 
-    name_key = filename or f"*{suffix}.{fmt}"
+    name_key = filename or (
+        f"*{suffix}.*" if fmt == "auto" else f"*{suffix}.{fmt}"
+    )
     key = (str(target_dir).lower(), name_key.lower())
     if key in seen:
         errors.append(

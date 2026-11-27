@@ -10,6 +10,7 @@ from ..adapters.ffmpeg import CommandFailedError, DependencyMissingError
 from ..core.models import Artifact
 from ..core.step import StepContext
 from ..domain.paths import normalize_path
+from ..domain.vtt import vtt_to_srt
 from ..rpc.errors import DEPENDENCY_MISSING, INVALID_PARAMS, STEP_FAILED, JsonRpcError
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,61 @@ def read_text(artifact: Artifact) -> str:
     """读取文本产物并去除 BOM；换行统一为 LF。"""
     text = Path(artifact.path).read_text(encoding="utf-8-sig")
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def artifact_suffix(artifact: Artifact) -> str:
+    """产物实际内容后缀（小写，含点）。
+
+    优先使用 ``artifact.path``：``media.extract_subtitles`` 的 ``source_path``
+    指向视频，不能用来推断字幕格式。只有路径没有后缀时才回退到来源路径。
+    """
+    path_suffix = Path(str(artifact.path or "")).suffix.lower()
+    if path_suffix:
+        return path_suffix
+    return Path(str((artifact.meta or {}).get("source_path") or "")).suffix.lower()
+
+
+def artifact_format(artifact: Artifact) -> str:
+    """推断字幕格式：``srt`` / ``ass`` / ``vtt``；未知返回 ``any``。"""
+    suffix = artifact_suffix(artifact)
+    if suffix:
+        return kind_from_suffix(suffix)
+    kind = (artifact.kind or "").lower()
+    if kind in ("srt", "ass", "vtt"):
+        return kind
+    if kind == "ssa":
+        return "ass"
+    return "any"
+
+
+def read_subtitle_text(
+    artifact: Artifact,
+    *,
+    step: str,
+    allowed: tuple[str, ...] = ("srt", "vtt"),
+) -> tuple[str, str]:
+    """读取文本字幕并返回 ``(SRT 文本, 原始格式)``。
+
+    VTT 会按项目约定自动转换为 SRT；不在 ``allowed`` 内的格式给出结构化
+    错误，避免把 ASS 样式文本当作 SRT 静默处理。
+    """
+    fmt = artifact_format(artifact)
+    if fmt == "vtt" and "vtt" in allowed:
+        return vtt_to_srt(read_text(artifact)), "vtt"
+    if fmt == "srt" and "srt" in allowed:
+        return read_text(artifact), "srt"
+    if fmt == "ass" and "ass" in allowed:
+        return read_text(artifact), "ass"
+    raise JsonRpcError(
+        INVALID_PARAMS,
+        f"步骤 {step} 不支持的字幕格式: {fmt}",
+        {
+            "step": step,
+            "artifact": artifact.path,
+            "format": fmt,
+            "supported": list(allowed),
+        },
+    )
 
 
 def artifact_stem(artifact: Artifact) -> str:

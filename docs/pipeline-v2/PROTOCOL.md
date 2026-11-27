@@ -190,7 +190,12 @@ subtitle-engine.exe --rpc stdio
 
 - 步骤 id 唯一、`needs` 必须存在、无环。
 - 未知步骤实现、Options Schema 校验失败。
-- 必填输入端口必须有类型兼容的上游；`kind` 相同或任一端为 `any`。
+- 必填输入端口必须有类型兼容的上游；`kind` 相同、任一端为 `any`，或双方同属文本字幕
+  （`subtitle_doc` / `srt` / `ass` / `vtt`）时兼容。
+- 文本字幕步骤（`sub.normalize` / `sub.validate` / `sub.sdh_scan`）接受 `subtitle_doc`，
+  内部把 VTT 自动转换为 SRT；ASS 不在这些步骤中静默降级，会返回结构化参数错误。
+- `sub.fps_convert` / `sub.shift_time` 接受 SRT / ASS / SSA / VTT：ASS 保持 ASS 输出，
+  VTT 按约定转成 SRT；`sub.export` 的 `format=auto` 保持输入格式。
 - `sub.export` 的 `output_dir` 必须位于项目工作区内，`filename` 不得含路径分隔符；多个导出步骤不得写同一路径。
 - `recipe.outputs` 必须引用已声明端口。
 - 需要 Agent 的步骤在未配置时返回 `warning: agent_not_configured`（运行时会返回 `1005`）。
@@ -244,7 +249,9 @@ subtitle-engine.exe --rpc stdio
 ]
 ```
 
-内置配方：`batch_video_to_clean_srt`、`batch_translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`。
+内置配方：`batch_video_to_clean_srt`、`batch_video_to_clean_srt_agent`、
+`batch_subtitle_to_clean_srt`、`batch_subtitle_sdh_agent`、
+`batch_translated_to_bilingual`、`batch_normalize`、`batch_shift_fps`。
 内置项 `builtin=true`，`recipes.save` / `recipes.delete` 会返回 `1001`；用户配方存
 `<data_dir>/recipes/<id>.json`。`batch_translated_to_bilingual` / `batch_shift_fps` 依赖的
 M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标明计划里程碑。
@@ -361,7 +368,7 @@ M7 步骤当前为占位实现，执行时返回 `1002` 且 `data.milestone` 标
 
 - `options_schema` 由 Pydantic `model_json_schema()` 生成，前端**禁止**硬编码参数表单。
 - 端口 `kind` 取值：`srt` / `ass` / `vtt` / `media_info` / `subtitle_doc` / `sdh_candidates` / `review_audit` / `review` / `any`。
-- 连线规则：`kind` 相同或任一端为 `any`。
+- 连线规则：`kind` 相同、任一端为 `any`，或双方同属文本字幕（`subtitle_doc` / `srt` / `ass` / `vtt`）。
 
 ### 6.2 `Recipe`（M0 子集）
 

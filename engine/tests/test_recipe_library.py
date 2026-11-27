@@ -13,6 +13,9 @@ from subtitle_engine.rpc.errors import RECIPE_INVALID, JsonRpcError
 
 BUILTINS = {
     "batch_video_to_clean_srt",
+    "batch_video_to_clean_srt_agent",
+    "batch_subtitle_to_clean_srt",
+    "batch_subtitle_sdh_agent",
     "batch_translated_to_bilingual",
     "batch_normalize",
     "batch_shift_fps",

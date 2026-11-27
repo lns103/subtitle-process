@@ -1,13 +1,13 @@
 id: fn_sdh_scan
 name: 扫描 SDH
 version: 1
-description: 按括号/音效/说话人/全大写等规则标记 SDH 候选。
+description: 按括号/音效/说话人/全大写等规则标记 SDH 候选；VTT 自动转 SRT。
 builtin: true
 inputs:
   - name: subs
     label: 字幕文件
     kind: files
-    accept: [".srt"]
+    accept: [".srt", ".vtt"]
     required: true
     multiple: true
     bind:

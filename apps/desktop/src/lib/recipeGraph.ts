@@ -154,9 +154,14 @@ export function uniqueStepId(uses: string, existing: Iterable<string>): string {
   return `${base}_${index}`;
 }
 
-/** 端口类型兼容：相同 kind，或任意一侧为 "any"。 */
+/** 端口类型兼容：相同 kind，或任意一侧为 "any"，或同属文本字幕。 */
+const SUBTITLE_KINDS = new Set(["srt", "ass", "vtt", "subtitle_doc"]);
+
 export function portCompatible(outputKind: string, inputKind: string): boolean {
-  return outputKind === inputKind || outputKind === "any" || inputKind === "any";
+  if (outputKind === inputKind || outputKind === "any" || inputKind === "any") {
+    return true;
+  }
+  return SUBTITLE_KINDS.has(outputKind) && SUBTITLE_KINDS.has(inputKind);
 }
 
 /**

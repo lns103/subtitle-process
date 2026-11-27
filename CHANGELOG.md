@@ -4,6 +4,10 @@
 
 ## Unreleased — Pipeline v2
 
+### 版本
+
+- 桌面应用版本号提升至 **`1.0.0-alpha6`**：只需改 `apps/desktop/package.json`，`package-lock.json` 由 `npm install --package-lock-only` 刷新，其余位置自动派生（见 README「升版与锁文件」）；Python 引擎版本仍为 `0.1.0`。
+
 ### 删除自定义流水线配方
 
 #### 新增

@@ -8,6 +8,17 @@
 
 - 桌面应用版本号提升至 **`1.0.0-alpha6`**：只需改 `apps/desktop/package.json`，`package-lock.json` 由 `npm install --package-lock-only` 刷新，其余位置自动派生（见 README「升版与锁文件」）；Python 引擎版本仍为 `0.1.0`。
 
+### Agent 结构化输出
+
+#### 修复
+- **Agent 反复先收到一次 HTTP 400**：端点不支持 `json_schema` 时会自动降级到 `json_object`，现在会记住 `(base_url, model)` 的能力结果，同一进程内后续批次与运行不再重复探测；设置中修改端点、模型或结构化输出方式后重新探测。
+
+#### 变更
+- **默认结构化输出改为 `json_object`**：与默认的 DeepSeek 端点一致，开箱即用不再产生一次必然失败的 `json_schema` 请求；需要更严格约束时可在设置中切回 `json_schema`。
+
+#### 测试
+- 引擎新增降级记忆用例：同一客户端多批只探测一次，后续客户端直接使用 `json_object`；SDH 候选用例显式选择 `json_schema` 覆盖该路径。
+
 ### 删除自定义流水线配方
 
 #### 新增

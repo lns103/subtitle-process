@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 _PARSE_RETRIES = 1
 
+#: 进程内记忆“端点不支持 json_schema”，避免每批/每次运行都白白撞一次 400。
+#: 键为 ``(base_url, model)``；设置变更时由 RPC 层调用 :func:`clear_structured_output_cache`。
+_STRUCTURED_OUTPUT_UNSUPPORTED: set[tuple[str, str]] = set()
+
+
+def _endpoint_key(config: AgentConfig) -> tuple[str, str]:
+    return (config.base_url.rstrip("/"), config.model)
+
+
+def clear_structured_output_cache() -> None:
+    """清空结构化输出能力记忆，让端点重新探测 json_schema。"""
+    _STRUCTURED_OUTPUT_UNSUPPORTED.clear()
+
 
 class AgentError(RuntimeError):
     """Agent 调用失败基类。"""
@@ -67,6 +80,7 @@ class AgentClient:
         self._config = config
         self._api_key = api_key
         self._transport = transport
+        self._schema_supported: bool | None = None
 
     @property
     def config(self) -> AgentConfig:
@@ -81,8 +95,19 @@ class AgentClient:
             "Content-Type": "application/json",
         }
 
+    def _supports_json_schema(self) -> bool:
+        if self._schema_supported is not None:
+            return self._schema_supported
+        return _endpoint_key(self._config) not in _STRUCTURED_OUTPUT_UNSUPPORTED
+
+    def _mark_json_schema_unsupported(self) -> None:
+        self._schema_supported = False
+        _STRUCTURED_OUTPUT_UNSUPPORTED.add(_endpoint_key(self._config))
+
     def _structured_formats(self) -> list[dict[str, Any] | None]:
         if self._config.structured_output == "json_object":
+            return [{"type": "json_object"}]
+        if not self._supports_json_schema():
             return [{"type": "json_object"}]
         return [{"type": "json_schema"}, {"type": "json_object"}]
 
@@ -154,8 +179,10 @@ class AgentClient:
                     and response_format is not None
                     and response_format.get("type") == "json_schema"
                 ):
+                    self._mark_json_schema_unsupported()
                     logger.warning(
-                        "端点不支持 json_schema，降级为 json_object: status=%s",
+                        "端点不支持 json_schema，降级为 json_object 并记住该能力: "
+                        "status=%s",
                         exc.status_code,
                     )
                     continue
@@ -281,4 +308,5 @@ __all__ = [
     "AgentError",
     "AgentNotConfigured",
     "AgentRequestError",
+    "clear_structured_output_cache",
 ]

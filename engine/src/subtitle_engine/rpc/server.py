@@ -20,7 +20,11 @@ from typing import Any, BinaryIO
 from .. import steps as _steps  # noqa: F401 - 导入以完成步骤注册
 from .. import version as engine_version
 from ..adapters import ffmpeg
-from ..agents.client import AgentError, AgentNotConfigured
+from ..agents.client import (
+    AgentError,
+    AgentNotConfigured,
+    clear_structured_output_cache,
+)
 from ..agents.service import AgentService, ClientFactory
 from ..core.audit import restore_from_audit
 from ..core.cache import StepCache
@@ -41,7 +45,12 @@ from ..core.recipe_library import RecipeLibrary
 from ..core.registry import step_specs
 from ..core.reviews import ReviewStore
 from ..core.secrets import SecretStore, SecretStoreError, SecretStoreProtocol
-from ..core.settings import AppSettings, save_settings, settings_payload
+from ..core.settings import (
+    AppSettings,
+    load_settings,
+    save_settings,
+    settings_payload,
+)
 from ..core.store import Store
 from ..core.validation import ensure_valid, validate_recipe
 from ..domain import media as domain_media
@@ -793,7 +802,15 @@ class RpcServer:
             settings = AppSettings.model_validate(raw)
         except Exception as exc:  # noqa: BLE001 - 转成参数错误
             raise JsonRpcError(INVALID_PARAMS, f"设置校验失败: {exc}") from exc
+        previous = load_settings(self._store).agent
         save_settings(self._store, settings)
+        # 端点/模型/结构化输出变化后允许重新探测 json_schema。
+        if (
+            previous.base_url != settings.agent.base_url
+            or previous.model != settings.agent.model
+            or previous.structured_output != settings.agent.structured_output
+        ):
+            clear_structured_output_cache()
         return settings_payload(
             self._store, api_key_configured=self._agent.configured()
         )

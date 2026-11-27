@@ -14,7 +14,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   min_confidence: 0.85,
   auto_apply: false,
   delete_ratio_limit: 0.3,
-  structured_output: "json_schema",
+  structured_output: "json_object",
   api_key_configured: false,
 };
 

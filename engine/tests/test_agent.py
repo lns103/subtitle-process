@@ -11,11 +11,15 @@ import pytest
 from pydantic import BaseModel, Field
 
 from subtitle_engine import steps as _steps  # noqa: F401 - 触发步骤注册
-from subtitle_engine.agents.client import AgentClient
+from subtitle_engine.agents.client import AgentClient, clear_structured_output_cache
 from subtitle_engine.core.models import PortSpec, Recipe, StepNode
 from subtitle_engine.core.registry import register_step
 from subtitle_engine.core.secrets import InMemorySecretStore
-from subtitle_engine.core.settings import AgentConfig
+from subtitle_engine.core.settings import (
+    AgentConfig,
+    AppSettings,
+    save_settings,
+)
 from subtitle_engine.core.step import Step, StepContext
 from subtitle_engine.rpc.server import RpcServer
 
@@ -76,6 +80,14 @@ THREE_REMOVALS = """1
 00:00:04,000 --> 00:00:05,000
 Normal line
 """
+
+
+@pytest.fixture(autouse=True)
+def _reset_structured_output_cache() -> Any:
+    """能力记忆是进程级的；每个用例前后清空，避免测试互相污染。"""
+    clear_structured_output_cache()
+    yield
+    clear_structured_output_cache()
 
 
 class SeedAgentOptions(BaseModel):
@@ -199,9 +211,15 @@ def _request(method: str, params: dict[str, Any] | None = None) -> dict[str, Any
     return payload
 
 
-def _server(tmp_path: Path, handler: Any, *, key: str | None = "sk-test") -> RpcServer:
+def _server(
+    tmp_path: Path,
+    handler: Any,
+    *,
+    key: str | None = "sk-test",
+    agent_settings: dict[str, Any] | None = None,
+) -> RpcServer:
     secrets = InMemorySecretStore({"agent.api_key": key} if key else {})
-    return RpcServer(
+    server = RpcServer(
         sink=lambda _message: None,
         data_dir=tmp_path / "data",
         secret_store=secrets,
@@ -209,6 +227,10 @@ def _server(tmp_path: Path, handler: Any, *, key: str | None = "sk-test") -> Rpc
             config, secret, transport=httpx.MockTransport(handler)
         ),
     )
+    if agent_settings is not None:
+        config = AgentConfig.model_validate(agent_settings)
+        save_settings(server._store, AppSettings(agent=config))  # noqa: SLF001
+    return server
 
 
 async def _run(server: RpcServer, recipe: Recipe) -> dict[str, Any]:
@@ -231,16 +253,79 @@ def _exported_text(tmp_path: Path) -> str:
 def test_agent_client_falls_back_to_json_object() -> None:
     import asyncio
 
+    requests: list[dict[str, Any]] = []
     client = AgentClient(
-        AgentConfig(base_url="https://example.test/v1", model="mock"),
+        AgentConfig(
+            base_url="https://example.test/v1",
+            model="mock",
+            structured_output="json_schema",
+        ),
         "sk-test",
-        transport=httpx.MockTransport(make_handler(fail_first_schema=True)),
+        transport=httpx.MockTransport(
+            make_handler(requests, fail_first_schema=True)
+        ),
     )
     parsed, model = asyncio.run(
-        client.complete_json(system="s", user='{"candidates":[]}')
+        client.complete_json(
+            system="s",
+            user='{"candidates":[]}',
+            schema={"type": "object", "properties": {"items": {"type": "array"}}},
+        )
     )
     assert parsed["items"] == []
     assert model == "mock-1"
+    formats = [
+        request["body"].get("response_format", {}).get("type")
+        for request in requests
+    ]
+    assert formats == ["json_schema", "json_object"]
+
+
+def test_agent_remembers_json_schema_downgrade() -> None:
+    """降级后同一客户端与后续客户端都不再重发必然 400 的 json_schema。"""
+    import asyncio
+
+    requests: list[dict[str, Any]] = []
+    config = AgentConfig(
+        base_url="https://example.test/v1",
+        model="mock",
+        structured_output="json_schema",
+    )
+    client = AgentClient(
+        config,
+        "sk-test",
+        transport=httpx.MockTransport(
+            make_handler(requests, fail_first_schema=True)
+        ),
+    )
+    schema = {"type": "object", "properties": {"items": {"type": "array"}}}
+    for _ in range(2):
+        asyncio.run(
+            client.complete_json(
+                system="s", user='{"candidates":[]}', schema=schema
+            )
+        )
+    # 第一批降级一次后，第二批直接走 json_object。
+    assert [
+        request["body"].get("response_format", {}).get("type")
+        for request in requests
+    ] == ["json_schema", "json_object", "json_object"]
+
+    # 新客户端复用进程内记忆，不再探测。
+    later = AgentClient(
+        config,
+        "sk-test",
+        transport=httpx.MockTransport(
+            make_handler(requests, fail_first_schema=True)
+        ),
+    )
+    asyncio.run(
+        later.complete_json(
+            system="s", user='{"candidates":[]}', schema=schema
+        )
+    )
+    assert requests[-1]["body"]["response_format"]["type"] == "json_object"
+    assert len(requests) == 4
 
 
 def test_agent_ping_accepts_empty_content() -> None:
@@ -372,7 +457,11 @@ async def test_settings_rejects_api_key(tmp_path: Path) -> None:
 
 async def test_agent_only_sends_candidates_and_context(tmp_path: Path) -> None:
     requests: list[dict[str, Any]] = []
-    server = _server(tmp_path, make_handler(requests))
+    server = _server(
+        tmp_path,
+        make_handler(requests),
+        agent_settings={"structured_output": "json_schema"},
+    )
     try:
         run = await _run(server, agent_recipe(with_review=True))
         assert run["status"] == "waiting_review", run.get("error")

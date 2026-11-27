@@ -337,7 +337,11 @@ export function SettingsPage() {
                 </Field>
               </div>
 
-              <Field label="结构化输出" htmlFor="settings-structured-output">
+              <Field
+                label="结构化输出"
+                htmlFor="settings-structured-output"
+                hint="json_object 兼容性最好（DeepSeek 默认）；端点支持时 json_schema 约束更严格。"
+              >
                 <select
                   id="settings-structured-output"
                   value={draft.structured_output}
@@ -350,8 +354,8 @@ export function SettingsPage() {
                   }
                   className={inputClass}
                 >
-                  <option value="json_schema">json_schema（推荐）</option>
-                  <option value="json_object">json_object</option>
+                  <option value="json_object">json_object（兼容性最好，推荐）</option>
+                  <option value="json_schema">json_schema（端点支持时更可靠）</option>
                 </select>
               </Field>
 

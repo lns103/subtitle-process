@@ -39,7 +39,13 @@ class AgentConfig(BaseModel):
     min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     auto_apply: bool = Field(default=False, description="默认关闭；开启后仍受删除比例保护")
     delete_ratio_limit: float = Field(default=0.3, gt=0.0, le=1.0)
-    structured_output: Literal["json_schema", "json_object"] = "json_schema"
+    structured_output: Literal["json_schema", "json_object"] = Field(
+        default="json_object",
+        description=(
+            "结构化输出方式：json_object 兼容性最好（默认，DeepSeek 等端点可用）；"
+            "json_schema 更严格，但需要端点支持"
+        ),
+    )
 
 
 class AppSettings(BaseModel):

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "zustand";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   Save,
   SaveAll,
   Square,
+  Trash2,
   Undo2,
   Wand2,
   XCircle,
@@ -18,6 +20,7 @@ import {
 import {
   cancelJob,
   createProject,
+  deleteRecipe,
   getRecipe,
   listRecipes,
   listSteps,
@@ -197,6 +200,28 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
     }
     void persist();
   }, [builtin, persist, recipeId]);
+
+  const handleDelete = useCallback(async () => {
+    if (builtin || !recipeId || recipeId === "untitled") return;
+    const label = name.trim() || recipeId;
+    try {
+      const accepted = await confirm(
+        `确定删除自定义配方「${label}」吗？\n\n只会删除该配方，已生成的字幕与项目不会受影响，删除后无法恢复。`,
+        { title: "删除配方", kind: "warning", okLabel: "删除", cancelLabel: "取消" },
+      );
+      if (!accepted) return;
+      setBusy(true);
+      await deleteRecipe(recipeId);
+      await refreshRecipes();
+      newRecipe(specs, "未命名配方");
+      navigate({ name: "editor", recipeId: null });
+      showNotice(`已删除配方「${label}」`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }, [builtin, name, newRecipe, recipeId, refreshRecipes, showNotice, specs]);
 
   const handleRun = useCallback(async () => {
     const missing = inputs.filter(
@@ -423,6 +448,22 @@ export function EditorPage({ initialRecipeId, paths }: EditorPageProps) {
             className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
           >
             <Copy className="h-3.5 w-3.5" /> 复制预设
+          </button>
+          <button
+            type="button"
+            data-testid="delete-recipe"
+            title={
+              builtin
+                ? "内置配方不能删除"
+                : !recipeId || recipeId === "untitled"
+                  ? "未保存的配方无需删除"
+                  : "删除当前自定义配方"
+            }
+            disabled={busy || builtin || !recipeId || recipeId === "untitled"}
+            onClick={() => void handleDelete()}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> 删除
           </button>
           <button
             type="button"
